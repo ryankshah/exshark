@@ -4,11 +4,11 @@ defmodule ExShark do
   enables packet capture and analysis using Wireshark's powerful dissectors.
   """
 
-  alias ExShark.{Packet, LazyCapture, AsyncCapture}
+  alias ExShark.Packet
 
   @doc """
   Reads packets from a pcap file and returns them as a list.
-
+  
   ## Example
       iex> ExShark.read_file("capture.pcap")
       [%ExShark.Packet{...}, ...]
@@ -17,10 +17,9 @@ defmodule ExShark do
     filter = Keyword.get(opts, :filter, "")
     fields = Keyword.get(opts, :fields, [])
 
-    args =
-      ["-r", file_path, "-T", "ek", "-n"] ++
-        build_filter_args(filter) ++
-        build_fields_args(fields)
+    args = ["-r", file_path, "-T", "ek", "-n"] ++
+           build_filter_args(filter) ++
+           build_fields_args(fields)
 
     {output, 0} = System.cmd(find_tshark(), args, stderr_to_stdout: true)
 
@@ -52,17 +51,14 @@ defmodule ExShark do
     packet_count = Keyword.get(opts, :packet_count)
     fields = Keyword.get(opts, :fields, [])
 
-    args =
-      ["-i", interface, "-T", "ek", "-n"] ++
-        build_filter_args(filter) ++
-        build_duration_args(duration) ++
-        build_count_args(packet_count) ++
-        build_fields_args(fields)
+    args = ["-i", interface, "-T", "ek", "-n"] ++
+           build_filter_args(filter) ++
+           build_duration_args(duration) ++
+           build_count_args(packet_count) ++
+           build_fields_args(fields)
 
-    Port.open(
-      {:spawn_executable, find_tshark()},
-      [:binary, :exit_status, args: args]
-    )
+    Port.open({:spawn_executable, find_tshark()},
+      [:binary, :exit_status, args: args])
     |> stream_output()
     |> Stream.map(&Jason.decode!/1)
     |> Stream.map(&Packet.new/1)

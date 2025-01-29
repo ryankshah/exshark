@@ -57,7 +57,11 @@ packets = ExShark.read_file("capture.pcap")
 # Access packet information
 first_packet = Enum.at(packets, 0)
 IO.puts "Protocol: #{first_packet.highest_layer}"
-IO.puts "Source IP: #{first_packet[ip: :src]}"
+
+# Access protocol fields (multiple methods available)
+source_ip = ExShark.Packet.get_field(first_packet, {:ip, :src})
+# OR
+source_ip = ExShark.PacketAccess.get(first_packet, {:ip, :src})
 ```
 
 ### Live Capture
@@ -67,6 +71,11 @@ IO.puts "Source IP: #{first_packet[ip: :src]}"
 ExShark.capture(interface: "eth0", filter: "tcp port 80")
 |> Stream.each(fn packet ->
   IO.puts "Captured: #{packet.highest_layer}"
+  
+  # Access source and destination addresses
+  src = ExShark.Packet.get_field(packet, {:eth, :src})
+  dst = ExShark.Packet.get_field(packet, {:eth, :dst})
+  IO.puts "#{src} -> #{dst}"
 end)
 |> Stream.run()
 ```
@@ -86,33 +95,49 @@ IO.puts "Packet #{packet.frame_info.number}: #{packet.highest_layer}"
 
 ```elixir
 callback = fn packet ->
-  IO.puts "Processing packet #{packet.frame_info.number}"
+  protocol = packet.highest_layer
+  src = ExShark.Packet.get_field(packet, {:ip, :src})
+  dst = ExShark.Packet.get_field(packet, {:ip, :dst})
+  IO.puts "Processing #{protocol} packet: #{src} -> #{dst}"
   {:ok, nil}
 end
 
-TShark.AsyncCapture.apply_on_packets("capture.pcap", callback, timeout: 5000)
+ExShark.AsyncCapture.apply_on_packets("capture.pcap", callback, timeout: 5000)
 ```
 
 ## Advanced Usage
+
+### Protocol Field Access
+
+There are multiple ways to access packet fields:
+
+```elixir
+# Using the Packet module (recommended)
+src_ip = ExShark.Packet.get_field(packet, {:ip, :src})
+dst_ip = ExShark.Packet.get_field(packet, {:ip, :dst})
+
+# Using the PacketAccess protocol directly
+src_port = ExShark.PacketAccess.get(packet, {:tcp, :srcport})
+
+# Accessing frame info directly
+IO.puts "Protocol Stack: #{packet.frame_info.protocols}"
+
+# Getting entire protocol layer
+layer = ExShark.Packet.get_layer(packet, :tcp)
+```
 
 ### Raw Data Access
 
 ```elixir
 # Access raw packet data
-packet = TShark.read_file("capture.pcap") |> Enum.at(0)
-layer = TShark.Packet.get_layer(packet, :tcp)
+packet = ExShark.read_file("capture.pcap") |> Enum.at(0)
+layer = ExShark.Packet.get_layer(packet, :tcp)
+
+# Enable raw mode for hex/binary data
 raw_layer = %{layer | raw_mode: true}
-raw_data = TShark.Layer.get_field(raw_layer, :payload)
+raw_payload = ExShark.Packet.Layer.get_field(raw_layer, :payload)
 ```
 
-### Protocol Field Access
-
-```elixir
-# Multiple ways to access protocol fields
-packet[ip: :src]                    # Access protocol field
-packet.frame_info.protocols         # Access frame info
-TShark.Packet.get_layer(packet, :http)  # Get entire protocol layer
-```
 
 ## Documentation
 
