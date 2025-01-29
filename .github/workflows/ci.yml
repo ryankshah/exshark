@@ -30,12 +30,14 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
+        sudo groupadd wireshark || true
         sudo apt-get install -y tcpdump tshark
         sudo DEBIAN_FRONTEND=noninteractive dpkg-reconfigure wireshark-common
         sudo setcap cap_net_raw,cap_net_admin+eip $(which tcpdump)
         sudo setcap cap_net_raw,cap_net_admin+eip $(which dumpcap)
+        sudo chmod +x $(which dumpcap)
         sudo usermod -a -G wireshark $USER || true
-        newgrp wireshark
+        groups
 
     - name: Restore dependencies cache
       uses: actions/cache@v3
