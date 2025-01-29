@@ -6,7 +6,7 @@ defmodule ExShark.AsyncCapture do
 
   @doc ~S"""
   Applies a callback function to each packet in a capture file.
-  
+
   ## Options
     * `:timeout` - Maximum time in milliseconds to wait for completion (default: :infinity)
     * `:filter` - Display filter string
@@ -20,10 +20,11 @@ defmodule ExShark.AsyncCapture do
   """
   def apply_on_packets(file_path, callback, opts \\ []) do
     timeout = Keyword.get(opts, :timeout, :infinity)
-    
-    task = Task.async(fn ->
-      process_packets(file_path, callback, opts)
-    end)
+
+    task =
+      Task.async(fn ->
+        process_packets(file_path, callback, opts)
+      end)
 
     case Task.yield(task, timeout) || Task.shutdown(task) do
       {:ok, result} -> result
@@ -37,10 +38,11 @@ defmodule ExShark.AsyncCapture do
   """
   def apply_on_packets_async(file_path, callback, opts \\ []) do
     timeout = Keyword.get(opts, :timeout, :infinity)
-    
-    task = Task.async(fn ->
-      process_async_packets(file_path, callback, timeout, opts)
-    end)
+
+    task =
+      Task.async(fn ->
+        process_async_packets(file_path, callback, timeout, opts)
+      end)
 
     case Task.yield(task, timeout) || Task.shutdown(task) do
       {:ok, results} -> {:ok, results}
@@ -93,11 +95,16 @@ defmodule ExShark.AsyncCapture do
       Task.start(fn ->
         try do
           case callback.(pkt) do
-            {:ok, _} -> :ok
-            :ok -> :ok
-            {:error, reason} -> 
+            {:ok, _} ->
+              :ok
+
+            :ok ->
+              :ok
+
+            {:error, reason} ->
               IO.warn("Callback failed: #{inspect(reason)}")
-            other -> 
+
+            other ->
               IO.warn("Unexpected callback return: #{inspect(other)}")
           end
         rescue
