@@ -60,7 +60,7 @@ jobs:
       run: mix dialyzer
 
     - name: Upload coverage artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: coverage-report
         path: cover/
