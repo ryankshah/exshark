@@ -1,3 +1,4 @@
+# test/test_helper.exs
 ExUnit.start()
 
 defmodule ExShark.TestHelper do
@@ -14,16 +15,23 @@ defmodule ExShark.TestHelper do
     File.mkdir_p!(Path.dirname(test_pcap))
 
     unless File.exists?(test_pcap) do
+      # Create a sample pcap with tshark
       {_, 0} =
         System.cmd("tshark", [
           "-w",
           test_pcap,
           "-F",
           "pcap",
+          # capture filter
+          "-f",
+          "ip",
+          # capture 10 packets
           "-c",
-          "1",
+          "10",
           "-i",
-          "any"
+          "any",
+          # don't resolve names
+          "-n"
         ])
     end
 

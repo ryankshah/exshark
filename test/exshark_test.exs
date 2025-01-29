@@ -1,7 +1,6 @@
 defmodule ExSharkTest do
   use ExUnit.Case, async: true
   doctest ExShark
-
   alias ExShark.TestHelper
 
   setup do
@@ -13,6 +12,7 @@ defmodule ExSharkTest do
     test "reads packets from a PCAP file", %{test_pcap: test_pcap} do
       packets = ExShark.read_file(test_pcap)
       assert is_list(packets)
+      assert length(packets) > 0
     end
 
     test "applies filter when provided", %{test_pcap: test_pcap} do
