@@ -16,17 +16,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Run Sobelow (Security scanner)
-        uses: sobelow/action@v1.2.0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Set up Elixir
+        uses: erlef/setup-beam@v1.17.0
+        with:
+          elixir-version: '1.15.7'
+          otp-version: '26.0'
 
-      - name: Run mix_audit (Dependency vulnerability check)
+      - name: Install dependencies
         run: |
           mix local.hex --force
           mix local.rebar --force
           mix deps.get
-          mix deps.audit
+
+      - name: Run Sobelow
+        run: |
+          mix deps.get
+          mix sobelow --config
+
+      - name: Run mix_audit
+        run: mix deps.audit
 
   dependency-review:
     name: Dependency Review

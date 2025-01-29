@@ -30,9 +30,11 @@ jobs:
     - name: Install tshark
       run: |
         sudo apt-get update
+        sudo groupadd wireshark || true
         sudo apt-get install -y tshark
         sudo DEBIAN_FRONTEND=noninteractive dpkg-reconfigure wireshark-common
-        sudo usermod -a -G wireshark $USER
+        sudo usermod -a -G wireshark $USER || true
+        sudo chmod +x "$(which dumpcap)"
         tshark --version
 
     - name: Restore dependencies cache
