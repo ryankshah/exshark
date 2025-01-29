@@ -71,13 +71,21 @@ defmodule ExShark.LazyCapture do
   # Private Functions
 
   defp count_packets(file_path) do
-    {output, 0} = System.cmd(find_tshark(), ["-r", file_path, "-c", "1", "-T", "fields"])
-    String.to_integer(String.trim(output))
+    {output, 0} =
+      System.cmd(
+        "tshark",
+        ["-r", file_path, "-T", "ek", "-c", "1"]
+      )
+
+    case Jason.decode(output) do
+      {:ok, _} -> 1
+      _ -> raise "Error reading packet count"
+    end
   end
 
   defp load_single_packet(file_path, index) do
     {output, 0} =
-      System.cmd(find_tshark(), [
+      System.cmd("tshark", [
         "-r",
         file_path,
         "-Y",
@@ -87,10 +95,15 @@ defmodule ExShark.LazyCapture do
         "-n"
       ])
 
-    output
-    |> String.trim()
-    |> Jason.decode!()
-    |> ExShark.Packet.new()
+    case String.split(output, "\n", trim: true) do
+      [packet_json | _] ->
+        packet_json
+        |> Jason.decode!()
+        |> ExShark.Packet.new()
+
+      _ ->
+        raise "Error loading packet"
+    end
   end
 
   defp load_packet_range(file_path, offset, count) do

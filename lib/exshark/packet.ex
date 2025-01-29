@@ -100,6 +100,17 @@ defmodule ExShark.Packet do
     Map.has_key?(packet.layers, protocol)
   end
 
+  @doc """
+  Gets a field value from a specific protocol.
+
+  ## Example
+      iex> packet |> ExShark.Packet.get_field({:eth, :src})
+      "00:11:22:33:44:55"
+  """
+  def get_field(packet, {protocol, field} = key) when is_atom(protocol) and is_atom(field) do
+    ExShark.PacketAccess.get(packet, key)
+  end
+
   # Private Functions
 
   defp normalize_protocol_name(protocol) when is_atom(protocol), do: protocol
@@ -107,17 +118,21 @@ defmodule ExShark.Packet do
   defp normalize_protocol_name(protocol) when is_binary(protocol),
     do: String.downcase(protocol) |> String.to_atom()
 
-  defp determine_highest_layer(layers) do
+  defp determine_highest_layer(layers) when is_map(layers) do
     protocol_order = ~w(eth ip tcp udp dns icmp http)
 
-    layers
-    |> Map.keys()
-    |> Enum.map(&to_string/1)
-    |> Enum.filter(&(&1 in protocol_order))
-    |> Enum.sort_by(&Enum.find_index(protocol_order, fn x -> x == &1 end))
-    |> List.last()
-    |> String.upcase()
+    highest =
+      layers
+      |> Map.keys()
+      |> Enum.map(&to_string/1)
+      |> Enum.filter(&(&1 in protocol_order))
+      |> Enum.sort_by(&Enum.find_index(protocol_order, fn x -> x == &1 end))
+      |> List.last()
+
+    if highest, do: String.upcase(highest), else: "UNKNOWN"
   end
+
+  defp determine_highest_layer(_), do: "UNKNOWN"
 
   defp extract_frame_info(raw_packet) do
     frame_layer = get_in(raw_packet, ["layers", "frame"]) || %{}
@@ -131,16 +146,5 @@ defmodule ExShark.Packet do
 
   defp extract_summary_fields(raw_packet) do
     Map.take(raw_packet["layers"], ["frame.time", "frame.len", "frame.protocols"])
-  end
-
-  @doc """
-  Gets a field value from a specific protocol.
-
-  ## Example
-      iex> packet |> ExShark.Packet.get_field({:eth, :src})
-      "00:11:22:33:44:55"
-  """
-  def get_field(packet, {protocol, field} = key) when is_atom(protocol) and is_atom(field) do
-    ExShark.PacketAccess.get(packet, key)
   end
 end

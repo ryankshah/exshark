@@ -1,29 +1,32 @@
 ExUnit.start()
 
 defmodule ExShark.TestHelper do
-  @test_pcap "test/support/fixtures/simple_xml_and_json.pcap"
+  @fixtures_path Path.expand("support/fixtures", __DIR__)
 
-  def test_pcap_path, do: @test_pcap
+  def fixtures_path, do: @fixtures_path
 
-  def create_test_pcap do
-    unless File.exists?(@test_pcap) do
-      File.mkdir_p!(Path.dirname(@test_pcap))
-      # Create a simple test PCAP using tshark
-      System.cmd("tshark", [
-        "-w",
-        @test_pcap,
-        "-F",
-        "pcap",
-        # Create 24 packets
-        "-c",
-        "24",
-        # Use any interface
-        "-i",
-        "any"
-      ])
+  def fixture_path(filename) do
+    Path.join(@fixtures_path, filename)
+  end
+
+  def ensure_test_pcap! do
+    test_pcap = fixture_path("test.pcap")
+    File.mkdir_p!(Path.dirname(test_pcap))
+
+    unless File.exists?(test_pcap) do
+      {_, 0} =
+        System.cmd("tshark", [
+          "-w",
+          test_pcap,
+          "-F",
+          "pcap",
+          "-c",
+          "1",
+          "-i",
+          "any"
+        ])
     end
+
+    test_pcap
   end
 end
-
-# Create test PCAP if it doesn't exist
-ExShark.TestHelper.create_test_pcap()

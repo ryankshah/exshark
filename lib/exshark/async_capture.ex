@@ -69,16 +69,20 @@ defmodule ExShark.AsyncCapture do
   end
 
   defp process_packets(file_path, callback, opts) do
-    file_path
-    |> ExShark.read_file(opts)
-    |> Enum.each(fn pkt ->
-      case callback.(pkt) do
-        {:ok, _} -> :ok
-        :ok -> :ok
-        {:error, reason} -> raise "Callback failed: #{inspect(reason)}"
-        other -> raise "Unexpected callback return: #{inspect(other)}"
-      end
-    end)
+    try do
+      file_path
+      |> ExShark.read_file(opts)
+      |> Enum.each(fn pkt ->
+        case callback.(pkt) do
+          {:ok, _} -> :ok
+          :ok -> :ok
+          {:error, reason} -> raise "Callback failed: #{inspect(reason)}"
+          other -> raise "Unexpected callback return: #{inspect(other)}"
+        end
+      end)
+    rescue
+      e -> raise "Failed to process packets: #{Exception.message(e)}"
+    end
   end
 
   @doc """
@@ -95,17 +99,10 @@ defmodule ExShark.AsyncCapture do
       Task.start(fn ->
         try do
           case callback.(pkt) do
-            {:ok, _} ->
-              :ok
-
-            :ok ->
-              :ok
-
-            {:error, reason} ->
-              IO.warn("Callback failed: #{inspect(reason)}")
-
-            other ->
-              IO.warn("Unexpected callback return: #{inspect(other)}")
+            {:ok, _} -> :ok
+            :ok -> :ok
+            {:error, reason} -> IO.warn("Callback failed: #{inspect(reason)}")
+            other -> IO.warn("Unexpected callback return: #{inspect(other)}")
           end
         rescue
           e -> IO.warn("Callback error: #{Exception.message(e)}")
