@@ -8,7 +8,7 @@ defmodule ExShark do
 
   @doc """
   Reads packets from a pcap file and returns them as a list.
-  
+
   ## Example
       iex> path = "test/support/fixtures/test.pcap"
       iex> packets = ExShark.read_file(path)
