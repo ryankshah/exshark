@@ -1,0 +1,40 @@
+name: Security
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    - cron: '0 0 * * 0'  # Run weekly
+
+jobs:
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Run Sobelow (Security scanner)
+        uses: sobelow/action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run mix_audit (Dependency vulnerability check)
+        run: |
+          mix local.hex --force
+          mix local.rebar --force
+          mix deps.get
+          mix deps.audit
+
+  dependency-review:
+    name: Dependency Review
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Dependency Review
+        uses: actions/dependency-review-action@v3

@@ -1,0 +1,65 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  create-release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Get version from tag
+        id: get_version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Get Changelog Entry
+        id: changelog_reader
+        uses: mindsers/changelog-reader-action@v2
+        with:
+          version: ${{ steps.get_version.outputs.VERSION }}
+          path: ./CHANGELOG.md
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: Release ${{ steps.get_version.outputs.VERSION }}
+          body: ${{ steps.changelog_reader.outputs.changes }}
+          draft: false
+          prerelease: false
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  publish-hex:
+    name: Publish to Hex.pm
+    needs: create-release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Elixir
+        uses: erlef/setup-beam@v1
+        with:
+          elixir-version: '1.15.7'
+          otp-version: '26.0'
+
+      - name: Restore dependencies cache
+        uses: actions/cache@v3
+        with:
+          path: deps
+          key: ${{ runner.os }}-mix-${{ hashFiles('**/mix.lock') }}
+          restore-keys: ${{ runner.os }}-mix-
+
+      - name: Install dependencies
+        run: mix deps.get
+
+      - name: Publish to Hex.pm
+        env:
+          HEX_API_KEY: ${{ secrets.HEX_API_KEY }}
+        run: mix hex.publish --yes
