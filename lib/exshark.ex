@@ -8,10 +8,12 @@ defmodule ExShark do
 
   @doc """
   Reads packets from a pcap file and returns them as a list.
-
+  
   ## Example
-      iex> ExShark.read_file("capture.pcap")
-      [%ExShark.Packet{...}, ...]
+      iex> path = "test/support/fixtures/test.pcap"
+      iex> packets = ExShark.read_file(path)
+      iex> is_list(packets)
+      true
   """
   def read_file(file_path, opts \\ []) do
     filter = Keyword.get(opts, :filter, "")
@@ -59,10 +61,7 @@ defmodule ExShark do
         build_count_args(packet_count) ++
         build_fields_args(fields)
 
-    Port.open(
-      {:spawn_executable, find_tshark()},
-      [:binary, :exit_status, args: args]
-    )
+    Port.open({:spawn_executable, find_tshark()}, [:binary, :exit_status, args: args])
     |> stream_output()
     |> Stream.map(&Jason.decode!/1)
     |> Stream.map(&Packet.new/1)

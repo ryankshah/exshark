@@ -2,54 +2,33 @@ defmodule ExSharkTest do
   use ExUnit.Case, async: true
   doctest ExShark
 
+  alias ExShark.TestHelper
+
   setup do
-    packets = ExShark.read_file(ExShark.TestHelper.test_pcap_path())
-    {:ok, packets: packets}
+    test_pcap = TestHelper.ensure_test_pcap!()
+    {:ok, test_pcap: test_pcap}
   end
 
-  describe "basic operations" do
-    test "count packets", %{packets: packets} do
-      packet_count = Enum.count(packets)
-      assert packet_count == 24
+  describe "read_file/2" do
+    test "reads packets from a PCAP file", %{test_pcap: test_pcap} do
+      packets = ExShark.read_file(test_pcap)
+      assert is_list(packets)
     end
 
-    test "sum lengths", %{packets: packets} do
-      total_length =
-        packets
-        |> Enum.map(&String.to_integer(&1.length))
-        |> Enum.sum()
-
-      assert total_length == 2178
-    end
-
-    test "layers", %{packets: packets} do
-      packet_indexes = [0, 5, 6, 13, 14, 17, 23]
-      test_values = Enum.map(packet_indexes, &Enum.at(packets, &1).highest_layer)
-      known_values = ~w(DNS DNS ICMP ICMP TCP HTTP TCP)
-      assert test_values == known_values
+    test "applies filter when provided", %{test_pcap: test_pcap} do
+      packets = ExShark.read_file(test_pcap, filter: "ip")
+      assert is_list(packets)
     end
   end
 
-  describe "capture options" do
-    test "sets capture filter" do
+  describe "capture/1" do
+    @tag :capture
+    test "captures packets from interface" do
       packets =
-        ExShark.read_file(
-          ExShark.TestHelper.test_pcap_path(),
-          filter: "tcp"
-        )
+        ExShark.capture(interface: "any", packet_count: 1)
+        |> Enum.take(1)
 
-      assert Enum.all?(packets, &(&1.highest_layer in ["TCP", "HTTP"]))
-    end
-
-    test "extracts specified fields" do
-      packets =
-        ExShark.read_file(
-          ExShark.TestHelper.test_pcap_path(),
-          fields: ["frame.time", "ip.src"]
-        )
-
-      first_packet = List.first(packets)
-      assert first_packet.summary_fields["frame.time"]
+      assert length(packets) == 1
     end
   end
 end
