@@ -26,7 +26,7 @@ defmodule ExShark.LazyCaptureTest do
       # Load first packet
       :ok = LazyCapture.load_packets(capture, 1)
       assert LazyCapture.get_packet(capture, 0) != nil
-      
+
       # Load two more packets
       :ok = LazyCapture.load_packets(capture, 2)
       assert LazyCapture.get_packet(capture, 2) != nil
@@ -46,10 +46,12 @@ defmodule ExShark.LazyCaptureTest do
 
   describe "filtering" do
     setup do
-      {:ok, filtered_capture} = LazyCapture.start_link(
-        ExShark.TestHelper.test_pcap_path(),
-        filter: "tcp"
-      )
+      {:ok, filtered_capture} =
+        LazyCapture.start_link(
+          ExShark.TestHelper.test_pcap_path(),
+          filter: "tcp"
+        )
+
       {:ok, filtered_capture: filtered_capture}
     end
 

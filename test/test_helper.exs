@@ -10,10 +10,16 @@ defmodule ExShark.TestHelper do
       File.mkdir_p!(Path.dirname(@test_pcap))
       # Create a simple test PCAP using tshark
       System.cmd("tshark", [
-        "-w", @test_pcap,
-        "-F", "pcap",
-        "-c", "24",  # Create 24 packets
-        "-i", "any"  # Use any interface
+        "-w",
+        @test_pcap,
+        "-F",
+        "pcap",
+        # Create 24 packets
+        "-c",
+        "24",
+        # Use any interface
+        "-i",
+        "any"
       ])
     end
   end

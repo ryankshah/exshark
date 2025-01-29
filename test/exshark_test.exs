@@ -14,9 +14,11 @@ defmodule ExSharkTest do
     end
 
     test "sum lengths", %{packets: packets} do
-      total_length = packets
-                    |> Enum.map(&String.to_integer(&1.length))
-                    |> Enum.sum()
+      total_length =
+        packets
+        |> Enum.map(&String.to_integer(&1.length))
+        |> Enum.sum()
+
       assert total_length == 2178
     end
 
@@ -30,18 +32,22 @@ defmodule ExSharkTest do
 
   describe "capture options" do
     test "sets capture filter" do
-      packets = ExShark.read_file(
-        ExShark.TestHelper.test_pcap_path(),
-        filter: "tcp"
-      )
-      assert Enum.all?(packets, & &1.highest_layer in ["TCP", "HTTP"])
+      packets =
+        ExShark.read_file(
+          ExShark.TestHelper.test_pcap_path(),
+          filter: "tcp"
+        )
+
+      assert Enum.all?(packets, &(&1.highest_layer in ["TCP", "HTTP"]))
     end
 
     test "extracts specified fields" do
-      packets = ExShark.read_file(
-        ExShark.TestHelper.test_pcap_path(),
-        fields: ["frame.time", "ip.src"]
-      )
+      packets =
+        ExShark.read_file(
+          ExShark.TestHelper.test_pcap_path(),
+          fields: ["frame.time", "ip.src"]
+        )
+
       first_packet = List.first(packets)
       assert first_packet.summary_fields["frame.time"]
     end

@@ -3,7 +3,7 @@ defmodule ExShark.LazyCapture do
   Provides lazy loading of packets from a capture file.
   """
   use GenServer
-  
+
   defstruct [:file_path, :filter, :loaded_packets, :total_packets]
 
   def start_link(file_path, opts \\ []) do
@@ -13,13 +13,14 @@ defmodule ExShark.LazyCapture do
   def init({file_path, opts}) do
     # Count total packets without loading them
     total = count_packets(file_path)
-    
-    {:ok, %__MODULE__{
-      file_path: file_path,
-      filter: Keyword.get(opts, :filter, ""),
-      loaded_packets: %{},
-      total_packets: total
-    }}
+
+    {:ok,
+     %__MODULE__{
+       file_path: file_path,
+       filter: Keyword.get(opts, :filter, ""),
+       loaded_packets: %{},
+       total_packets: total
+     }}
   end
 
   @doc """
@@ -51,6 +52,7 @@ defmodule ExShark.LazyCapture do
         packet = load_single_packet(state.file_path, index)
         new_state = %{state | loaded_packets: Map.put(state.loaded_packets, index, packet)}
         {:reply, packet, new_state}
+
       packet ->
         {:reply, packet, state}
     end
@@ -74,12 +76,16 @@ defmodule ExShark.LazyCapture do
   end
 
   defp load_single_packet(file_path, index) do
-    {output, 0} = System.cmd(find_tshark(), [
-      "-r", file_path,
-      "-Y", "frame.number == #{index + 1}",
-      "-T", "ek",
-      "-n"
-    ])
+    {output, 0} =
+      System.cmd(find_tshark(), [
+        "-r",
+        file_path,
+        "-Y",
+        "frame.number == #{index + 1}",
+        "-T",
+        "ek",
+        "-n"
+      ])
 
     output
     |> String.trim()
@@ -88,13 +94,17 @@ defmodule ExShark.LazyCapture do
   end
 
   defp load_packet_range(file_path, offset, count) do
-    {output, 0} = System.cmd(find_tshark(), [
-      "-r", file_path,
-      "-Y", "frame.number >= #{offset + 1} && frame.number <= #{offset + count}",
-      "-T", "ek",
-      "-n"
-    ])
-    
+    {output, 0} =
+      System.cmd(find_tshark(), [
+        "-r",
+        file_path,
+        "-Y",
+        "frame.number >= #{offset + 1} && frame.number <= #{offset + count}",
+        "-T",
+        "ek",
+        "-n"
+      ])
+
     output
     |> String.split("\n", trim: true)
     |> Enum.map(&Jason.decode!/1)

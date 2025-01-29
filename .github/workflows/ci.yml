@@ -12,7 +12,7 @@ permissions:
 jobs:
   test:
     name: Build and test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     strategy:
       matrix:
         elixir: ['1.14.5', '1.15.7']
@@ -48,7 +48,9 @@ jobs:
       run: mix deps.get
 
     - name: Check formatting
-      run: mix format --check-formatted
+      run: |
+        ls -la
+        mix format --check-formatted --dry-run
 
     - name: Run Credo
       run: mix credo --strict

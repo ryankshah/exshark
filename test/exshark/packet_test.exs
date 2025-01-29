@@ -19,9 +19,11 @@ defmodule ExShark.PacketTest do
       Enum.each(access_methods, fn access_func ->
         layer = access_func.(packet)
         assert String.upcase(layer.name) == "ICMP"
-        
-        data = layer.data
-        |> Base.decode16!(case: :lower)
+
+        data =
+          layer.data
+          |> Base.decode16!(case: :lower)
+
         assert data == "abcdefghijklmnopqrstuvwabcdefghi"
       end)
     end
@@ -41,18 +43,21 @@ defmodule ExShark.PacketTest do
 
     test "raw mode access", %{icmp_packet: packet} do
       original_src = packet[ip: :src]
-      
+
       ip_layer = Packet.get_layer(packet, :ip)
       raw_ip_layer = %{ip_layer | raw_mode: true}
-      
+
       raw_src = Packet.Layer.get_field(raw_ip_layer, :src)
       assert raw_src != original_src
     end
 
     test "icmp response time", %{packets: packets} do
       packet = Enum.at(packets, 11)
-      resptime = packet[icmp: :resptime]
-                 |> String.replace(",", ".")
+
+      resptime =
+        packet[icmp: :resptime]
+        |> String.replace(",", ".")
+
       assert resptime == "1.667"
     end
   end
@@ -61,7 +66,7 @@ defmodule ExShark.PacketTest do
     test "access frame info", %{icmp_packet: packet} do
       expected_protocols = MapSet.new(["eth:ip:icmp:data", "eth:ethertype:ip:icmp:data"])
       actual_protocols = MapSet.new([packet.frame_info.protocols])
-      
+
       assert MapSet.subset?(actual_protocols, expected_protocols)
       assert packet.frame_info.number == "8"
     end

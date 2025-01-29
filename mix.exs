@@ -66,7 +66,7 @@ defmodule ExShark.MixProject do
       source_url: @source_url,
       extras: ["README.md"],
       groups_for_modules: [
-        "Core": [
+        Core: [
           ExShark,
           ExShark.Packet
         ],

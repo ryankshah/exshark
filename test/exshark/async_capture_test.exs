@@ -8,7 +8,7 @@ defmodule ExShark.AsyncCaptureTest do
     test "callback called for each packet" do
       # Use an Agent to count packets
       {:ok, counter} = Agent.start_link(fn -> 0 end)
-      
+
       callback = fn _packet ->
         Agent.update(counter, &(&1 + 1))
         {:ok, nil}
@@ -43,10 +43,12 @@ defmodule ExShark.AsyncCaptureTest do
   describe "asynchronous callbacks" do
     test "handles async callbacks" do
       callback = fn packet ->
-        task = Task.async(fn ->
-          Process.sleep(100)
-          packet.highest_layer
-        end)
+        task =
+          Task.async(fn ->
+            Process.sleep(100)
+            packet.highest_layer
+          end)
+
         {:ok, task}
       end
 
@@ -55,30 +57,35 @@ defmodule ExShark.AsyncCaptureTest do
     end
 
     test "maintains packet order with async callbacks" do
-      original_layers = ExShark.read_file(@test_pcap)
-                       |> Enum.map(& &1.highest_layer)
+      original_layers =
+        ExShark.read_file(@test_pcap)
+        |> Enum.map(& &1.highest_layer)
 
       callback = fn packet ->
-        task = Task.async(fn ->
-          # Random delay to test ordering
-          Process.sleep(Enum.random(1..100))
-          packet.highest_layer
-        end)
+        task =
+          Task.async(fn ->
+            # Random delay to test ordering
+            Process.sleep(Enum.random(1..100))
+            packet.highest_layer
+          end)
+
         {:ok, task}
       end
 
       {:ok, results} = AsyncCapture.apply_on_packets_async(@test_pcap, callback)
       result_layers = Enum.map(results, fn {:ok, layer} -> layer end)
-      
+
       assert result_layers == original_layers
     end
 
     test "handles async callback timeouts" do
       callback = fn _packet ->
-        task = Task.async(fn ->
-          Process.sleep(2000)
-          "timeout test"
-        end)
+        task =
+          Task.async(fn ->
+            Process.sleep(2000)
+            "timeout test"
+          end)
+
         {:ok, task}
       end
 
@@ -99,21 +106,23 @@ defmodule ExShark.AsyncCaptureTest do
       end
 
       # Start capture in a separate process
-      task = Task.async(fn ->
-        AsyncCapture.capture_live(callback,
-          interface: "any",
-          packet_count: packet_count
-        )
-      end)
+      task =
+        Task.async(fn ->
+          AsyncCapture.capture_live(callback,
+            interface: "any",
+            packet_count: packet_count
+          )
+        end)
 
       # Collect messages
-      packets = for _ <- 1..packet_count do
-        receive do
-          {:packet, layer} -> layer
-        after
-          5000 -> flunk("Timeout waiting for packets")
+      packets =
+        for _ <- 1..packet_count do
+          receive do
+            {:packet, layer} -> layer
+          after
+            5000 -> flunk("Timeout waiting for packets")
+          end
         end
-      end
 
       Task.shutdown(task)
       assert length(packets) == packet_count
@@ -127,12 +136,13 @@ defmodule ExShark.AsyncCaptureTest do
         {:error, "test error"}
       end
 
-      task = Task.async(fn ->
-        AsyncCapture.capture_live(callback,
-          interface: "any",
-          packet_count: 1
-        )
-      end)
+      task =
+        Task.async(fn ->
+          AsyncCapture.capture_live(callback,
+            interface: "any",
+            packet_count: 1
+          )
+        end)
 
       # Verify we got a message despite the error
       assert_receive {:packet_processed, _}, 5000
@@ -143,15 +153,16 @@ defmodule ExShark.AsyncCaptureTest do
   describe "utility functions" do
     test "stops all captures" do
       # Start multiple captures
-      tasks = for _ <- 1..3 do
-        Task.async(fn ->
-          AsyncCapture.capture_live(
-            fn _ -> {:ok, nil} end,
-            interface: "any",
-            packet_count: 1
-          )
-        end)
-      end
+      tasks =
+        for _ <- 1..3 do
+          Task.async(fn ->
+            AsyncCapture.capture_live(
+              fn _ -> {:ok, nil} end,
+              interface: "any",
+              packet_count: 1
+            )
+          end)
+        end
 
       # Let them run briefly
       Process.sleep(100)
