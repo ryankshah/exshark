@@ -56,9 +56,12 @@ jobs:
       run: mix credo --strict
 
     - name: Run tests with coverage
-      run: mix coveralls.github
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        MIX_ENV: test
+      run: |
+        mix test
+        mix coveralls.html
 
     - name: Run Dialyzer
       run: mix dialyzer
