@@ -22,14 +22,21 @@ defmodule ExShark.AsyncCapture do
     timeout = Keyword.get(opts, :timeout, :infinity)
 
     task =
-      Task.async(fn ->
+      Task.Supervisor.async(ExShark.TaskSupervisor, fn ->
         process_packets(file_path, callback, opts)
       end)
 
-    case Task.yield(task, timeout) || Task.shutdown(task) do
-      {:ok, result} -> result
-      nil -> raise "Timeout after #{timeout}ms"
-      {:exit, reason} -> raise "Task failed: #{inspect(reason)}"
+    try do
+      case Task.yield(task, timeout) || Task.shutdown(task) do
+        {:ok, result} -> result
+        nil -> raise "Timeout after #{timeout}ms"
+      end
+    catch
+      :exit, reason ->
+        case reason do
+          {:timeout, _} -> raise "Timeout after #{timeout}ms"
+          _ -> raise "Task failed: #{inspect(reason)}"
+        end
     end
   end
 
@@ -40,52 +47,87 @@ defmodule ExShark.AsyncCapture do
     timeout = Keyword.get(opts, :timeout, :infinity)
 
     task =
-      Task.async(fn ->
+      Task.Supervisor.async(ExShark.TaskSupervisor, fn ->
         process_async_packets(file_path, callback, timeout, opts)
       end)
 
-    case Task.yield(task, timeout) || Task.shutdown(task) do
-      {:ok, results} -> {:ok, results}
-      nil -> raise "Timeout after #{timeout}ms"
-      {:exit, reason} -> raise "Task failed: #{inspect(reason)}"
+    try do
+      case Task.yield(task, timeout) || Task.shutdown(task) do
+        {:ok, results} -> {:ok, results}
+        nil -> raise "Timeout after #{timeout}ms"
+      end
+    catch
+      :exit, reason ->
+        case reason do
+          {:timeout, _} -> raise "Timeout after #{timeout}ms"
+          _ -> raise "Task failed: #{inspect(reason)}"
+        end
     end
   end
 
   defp process_async_packets(file_path, callback, timeout, opts) do
-    file_path
-    |> ExShark.read_file(opts)
-    |> Task.async_stream(
-      fn pkt ->
-        case callback.(pkt) do
-          {:ok, task} when is_struct(task, Task) ->
-            {:ok, Task.await(task, timeout)}
+    task_supervisor = ExShark.TaskSupervisor
 
-          {:ok, result} ->
-            {:ok, result}
+    stream_result =
+      file_path
+      |> ExShark.read_file(opts)
+      |> Task.Supervisor.async_stream_nolink(
+        task_supervisor,
+        fn pkt ->
+          try do
+            case callback.(pkt) do
+              {:ok, task} when is_struct(task, Task) ->
+                {:ok, Task.await(task, timeout)}
 
-          other ->
-            other
-        end
-      end,
-      timeout: timeout,
-      ordered: true
-    )
-    |> Enum.to_list()
+              {:ok, result} ->
+                {:ok, result}
+
+              {:error, reason} ->
+                {:error, reason}
+
+              other ->
+                {:error, "Unexpected callback return: #{inspect(other)}"}
+            end
+          rescue
+            e -> {:error, Exception.message(e)}
+          catch
+            :exit, reason -> {:error, "Task exited: #{inspect(reason)}"}
+          end
+        end,
+        timeout: timeout,
+        ordered: true
+      )
+      |> Enum.to_list()
+
+    {:ok, stream_result}
   end
 
   defp process_packets(file_path, callback, opts) do
-    file_path
-    |> ExShark.read_file(opts)
-    |> Enum.each(fn pkt ->
-      case callback.(pkt) do
-        {:ok, _} -> :ok
-        :ok -> :ok
-        {:error, reason} -> raise "Callback failed: #{inspect(reason)}"
-        other -> raise "Unexpected callback return: #{inspect(other)}"
-      end
-    end)
-  rescue
-    error -> reraise "Failed to process packets: #{Exception.message(error)}", __STACKTRACE__
+    try do
+      file_path
+      |> ExShark.read_file(opts)
+      |> Enum.each(fn pkt ->
+        try do
+          case callback.(pkt) do
+            {:ok, _} -> :ok
+            :ok -> :ok
+            {:error, reason} -> raise "Callback failed: #{inspect(reason)}"
+            other -> raise "Unexpected callback return: #{inspect(other)}"
+          end
+        rescue
+          e -> raise "Callback error: #{Exception.message(e)}"
+        end
+      end)
+
+      :ok
+    rescue
+      e ->
+        error_msg = Exception.message(e)
+        reraise "Failed to process packets: #{error_msg}", __STACKTRACE__
+    catch
+      :exit, reason ->
+        reraise "Failed to process packets: Task exited - #{inspect(reason)}", __STACKTRACE__
+    end
   end
 
   @doc """
@@ -97,18 +139,32 @@ defmodule ExShark.AsyncCapture do
     * `:timeout` - Maximum time to wait for each callback (default: 5000)
   """
   def capture_live(callback, opts \\ []) do
-    ExShark.capture(Keyword.put_new(opts, :timeout, 5000))
+    capture_opts = Keyword.put_new(opts, :timeout, 5000)
+    task_supervisor = ExShark.TaskSupervisor
+
+    ExShark.capture(capture_opts)
     |> Stream.each(fn pkt ->
-      Task.start(fn ->
+      Task.Supervisor.start_child(task_supervisor, fn ->
         try do
           case callback.(pkt) do
-            {:ok, _} -> :ok
-            :ok -> :ok
-            {:error, reason} -> IO.warn("Callback failed: #{inspect(reason)}")
-            other -> IO.warn("Unexpected callback return: #{inspect(other)}")
+            {:ok, _} ->
+              :ok
+
+            :ok ->
+              :ok
+
+            {:error, reason} ->
+              require Logger
+              Logger.warning("Callback failed: #{inspect(reason)}")
+
+            other ->
+              require Logger
+              Logger.warning("Unexpected callback return: #{inspect(other)}")
           end
         rescue
-          e -> IO.warn("Callback error: #{Exception.message(e)}")
+          e ->
+            require Logger
+            Logger.warning("Callback error: #{Exception.message(e)}")
         end
       end)
     end)

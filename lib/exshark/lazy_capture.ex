@@ -14,7 +14,7 @@ defmodule ExShark.LazyCapture do
   end
 
   def init({file_path, opts}) do
-    case count_packets(file_path) do
+    case count_packets(file_path, Keyword.get(opts, :filter, "")) do
       {:ok, total} ->
         {:ok,
          %__MODULE__{
@@ -52,7 +52,7 @@ defmodule ExShark.LazyCapture do
   end
 
   def handle_call({:load_packets, count}, _from, state) do
-    case load_packet_range(state.file_path, map_size(state.loaded_packets), count) do
+    case load_packet_range(state.file_path, map_size(state.loaded_packets), count, state.filter) do
       {:ok, new_packets} ->
         new_loaded = Enum.into(new_packets, state.loaded_packets)
         {:reply, :ok, %{state | loaded_packets: new_loaded}}
@@ -81,7 +81,7 @@ defmodule ExShark.LazyCapture do
 
   defp load_single_packet(file_path, index, filter) do
     filter_args = if filter && filter != "", do: ["-Y", filter], else: []
-    base_args = ["-r", file_path, "-T", "ek", "-n", "-c", "#{index + 1}"]
+    base_args = ["-r", file_path, "-T", "ek", "-n"]
     args = base_args ++ filter_args
 
     with {output, 0} <- System.cmd("tshark", args),
@@ -108,46 +108,29 @@ defmodule ExShark.LazyCapture do
     |> Enum.filter(& &1)
   end
 
-  defp count_packets(file_path) do
-    args = ["-r", file_path, "-T", "ek", "-c", "1"]
+  defp count_packets(file_path, filter) do
+    filter_args = if filter && filter != "", do: ["-Y", filter], else: []
+    base_args = ["-r", file_path, "-T", "fields", "-e", "frame.number"]
+    args = base_args ++ filter_args
 
-    case run_tshark(args) do
-      {:ok, _packet} -> {:ok, 1}
-      error -> error
+    case System.cmd("tshark", args) do
+      {output, 0} ->
+        count =
+          output
+          |> String.split("\n", trim: true)
+          |> length()
+
+        {:ok, count}
+
+      {error, _} ->
+        {:error, "tshark error: #{error}"}
     end
   end
 
-  defp run_tshark(args) do
-    case System.cmd("tshark", args, stderr_to_stdout: true) do
-      {output, 0} -> parse_tshark_output(output)
-      {error, _} -> {:error, "tshark error: #{error}"}
-    end
-  end
-
-  defp parse_tshark_output(output) do
-    case String.split(output, "\n", trim: true) do
-      [first | _] -> parse_json_packet(first)
-      _ -> {:error, "No packets found"}
-    end
-  end
-
-  defp parse_json_packet(json_string) do
-    case Jason.decode(json_string) do
-      {:ok, json} -> {:ok, ExShark.Packet.new(json)}
-      {:error, reason} -> {:error, "JSON parse error: #{reason}"}
-    end
-  end
-
-  defp load_packet_range(file_path, offset, count) do
-    args = [
-      "-r",
-      file_path,
-      "-T",
-      "ek",
-      "-c",
-      "#{offset + count}",
-      "-n"
-    ]
+  defp load_packet_range(file_path, offset, count, filter) do
+    filter_args = if filter && filter != "", do: ["-Y", filter], else: []
+    base_args = ["-r", file_path, "-T", "ek", "-n"]
+    args = base_args ++ filter_args
 
     case System.cmd("tshark", args) do
       {output, 0} ->
