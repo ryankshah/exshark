@@ -16,28 +16,18 @@ defmodule ExShark.TestHelper do
     File.mkdir_p!(Path.dirname(@test_pcap))
 
     unless File.exists?(@test_pcap) do
-      # Create a sample pcap with tshark
-      args = [
-        "-w",
-        @test_pcap,
-        "-F",
-        "pcap",
-        # capture filter
-        "-f",
-        "ip",
-        # capture 10 packets
-        "-c",
-        "10",
-        "-i",
-        "any",
-        # JSON format
-        "-T",
-        "ek",
-        # don't resolve names
-        "-n"
+      # Create a sample pcap with more reliable packet generation
+      ping_args = ["-c", "4", "-i", "0.2", "127.0.0.1"]
+      capture_args = [
+        "-w", @test_pcap,
+        "-F", "pcap",
+        "-f", "icmp or ip",
+        "-a", "duration:2",
+        "-i", "any"
       ]
 
-      {output, status} = System.cmd("tshark", args)
+      System.cmd("ping", ping_args)
+      {output, status} = System.cmd("tshark", capture_args)
 
       if status != 0 do
         raise "Failed to create test PCAP: #{output}"
@@ -48,4 +38,5 @@ defmodule ExShark.TestHelper do
   end
 end
 
+# Create test PCAP on startup
 ExShark.TestHelper.ensure_test_pcap!()
