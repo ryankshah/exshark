@@ -8,7 +8,7 @@ defmodule ExShark do
 
   @doc """
   Reads packets from a pcap file and returns them as a list.
-
+  
   ## Example
       iex> path = Path.join([__DIR__, "../test/support/fixtures/test.pcap"])
       iex> packets = ExShark.read_file(path)
@@ -25,12 +25,11 @@ defmodule ExShark do
         build_fields_args(fields)
 
     case System.cmd("tshark", args, stderr_to_stdout: true) do
-      {output, 0} ->
+      {output, 0} -> 
         output
         |> String.split("\n", trim: true)
         |> Enum.map(&parse_json/1)
         |> Enum.map(&Packet.new/1)
-
       {error, _} ->
         raise "tshark error: #{error}"
     end
@@ -99,8 +98,12 @@ defmodule ExShark do
 
   defp parse_json(json_string) do
     case Jason.decode(json_string) do
-      {:ok, data} -> data
-      {:error, _} -> %{}
+      {:ok, data} when is_map(data) -> 
+        case get_in(data, ["layers"]) do
+          layers when is_map(layers) -> data
+          _ -> %{"layers" => %{}}
+        end
+      _ -> %{"layers" => %{}}
     end
   end
 end

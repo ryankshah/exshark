@@ -6,7 +6,7 @@ defmodule ExShark.AsyncCapture do
 
   @doc ~S"""
   Applies a callback function to each packet in a capture file.
-
+  
   ## Options
     * `:timeout` - Maximum time in milliseconds to wait for completion (default: :infinity)
     * `:filter` - Display filter string
