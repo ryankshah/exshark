@@ -94,25 +94,14 @@ defmodule ExShark.Packet do
   end
 
   @doc """
-  Gets a protocol layer from the packet.
-  """
-  def get_layer(packet, protocol) do
-    protocol = normalize_protocol_name(protocol)
-
-    case Map.get(packet.layers, protocol) do
-      nil -> nil
-      layer_data -> Layer.new(protocol, layer_data)
-    end
-  end
-
-  @doc """
   Checks if the packet contains a specific protocol.
   """
   def has_protocol?(packet, protocol) do
     protocol = normalize_protocol_name(protocol)
+    protocols_list = String.split(packet.frame_info.protocols || "", ":")
 
-    Map.has_key?(packet.layers, protocol) ||
-      String.contains?(packet.frame_info.protocols || "", String.downcase(to_string(protocol)))
+    String.downcase(to_string(protocol)) in protocols_list ||
+      Map.has_key?(packet.layers, protocol)
   end
 
   @doc """
@@ -122,6 +111,18 @@ defmodule ExShark.Packet do
     case get_layer(packet, protocol) do
       nil -> nil
       layer -> Layer.get_field(layer, field)
+    end
+  end
+
+  @doc """
+  Gets a protocol layer from the packet.
+  """
+  def get_layer(packet, protocol) do
+    protocol = normalize_protocol_name(protocol)
+
+    case Map.get(packet.layers, protocol) do
+      nil -> nil
+      layer_data -> Layer.new(protocol, layer_data)
     end
   end
 

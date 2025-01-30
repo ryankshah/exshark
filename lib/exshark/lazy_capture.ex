@@ -38,7 +38,24 @@ defmodule ExShark.LazyCapture do
     GenServer.call(pid, :total_packets)
   end
 
-  def handle_call({:get_packet, index}, _from, state) do
+  # def handle_call({:get_packet, index}, _from, state) do
+  #   case Map.get(state.loaded_packets, index) do
+  #     nil ->
+  #       case load_single_packet(state.file_path, index, state.filter) do
+  #         {:ok, packet} ->
+  #           new_state = %{state | loaded_packets: Map.put(state.loaded_packets, index, packet)}
+  #           {:reply, packet, new_state}
+
+  #         {:error, _} ->
+  #           {:reply, nil, state}
+  #       end
+
+  #     packet ->
+  #       {:reply, packet, state}
+  #   end
+  # end
+
+  def handle_call({:get_packet, index}, _from, state) when is_integer(index) do
     case Map.get(state.loaded_packets, index) do
       nil ->
         case load_single_packet(state.file_path, index, state.filter) do
@@ -83,15 +100,26 @@ defmodule ExShark.LazyCapture do
     filter_arg = if filter && filter != "", do: ["-Y", filter], else: []
     args = ["-r", file_path, "-c", "#{index + 1}", "-T", "ek", "-n"] ++ filter_arg
 
-    with {output, 0} <- System.cmd("tshark", args),
-         packets when packets != [] <- String.split(output, "\n", trim: true),
-         parsed_packets <- parse_packets(packets),
-         true <- index < length(parsed_packets) do
-      {:ok, Enum.at(parsed_packets, index)}
-    else
-      {error, _} -> {:error, "tshark error: #{error}"}
-      [] -> {:error, "No packets found"}
-      false -> {:error, "Packet index out of range"}
+    case System.cmd("tshark", args) do
+      {output, 0} ->
+        case String.split(output, "\n", trim: true) do
+          [] ->
+            {:error, "No packets found"}
+
+          packets ->
+            parsed_packets =
+              packets
+              |> Enum.map(&Jason.decode!/1)
+              |> Enum.map(&ExShark.Packet.new/1)
+
+            case Enum.at(parsed_packets, index) do
+              nil -> {:error, "Invalid packet index"}
+              packet -> {:ok, packet}
+            end
+        end
+
+      {error, _} ->
+        {:error, "tshark error: #{error}"}
     end
   end
 
