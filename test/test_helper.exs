@@ -18,12 +18,18 @@ defmodule ExShark.TestHelper do
     unless File.exists?(@test_pcap) do
       # Create a sample pcap with more reliable packet generation
       ping_args = ["-c", "4", "-i", "0.2", "127.0.0.1"]
+
       capture_args = [
-        "-w", @test_pcap,
-        "-F", "pcap",
-        "-f", "icmp or ip",
-        "-a", "duration:2",
-        "-i", "any"
+        "-w",
+        @test_pcap,
+        "-F",
+        "pcap",
+        "-f",
+        "icmp or ip",
+        "-a",
+        "duration:2",
+        "-i",
+        "any"
       ]
 
       System.cmd("ping", ping_args)
