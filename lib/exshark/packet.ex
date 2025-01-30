@@ -10,16 +10,24 @@ defmodule ExShark.Packet do
     case key do
       # Handle keyword list format (e.g. [eth: :src])
       [{protocol, field}] ->
-        case get_protocol_field(packet, protocol, field) do
-          nil -> :error
-          value -> {:ok, value}
+        if has_protocol?(packet, protocol) do
+          case get_protocol_field(packet, protocol, field) do
+            nil -> :error
+            value -> {:ok, value}
+          end
+        else
+          :error
         end
 
       # Handle tuple format (e.g. {:eth, :src})
       {protocol, field} when is_atom(protocol) and is_atom(field) ->
-        case get_protocol_field(packet, protocol, field) do
-          nil -> :error
-          value -> {:ok, value}
+        if has_protocol?(packet, protocol) do
+          case get_protocol_field(packet, protocol, field) do
+            nil -> :error
+            value -> {:ok, value}
+          end
+        else
+          :error
         end
 
       _ ->
