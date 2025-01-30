@@ -3,26 +3,26 @@ defmodule ExShark.Packet do
   Represents a parsed network packet with convenient field access.
   """
 
+  alias ExShark.Packet.Layer
+
   @behaviour Access
 
   @impl Access
-  def fetch(packet, [{protocol, field}]), do: do_fetch(packet, protocol, field)
-
-  def fetch(packet, {protocol, field}) when is_atom(protocol) and is_atom(field),
-    do: do_fetch(packet, protocol, field)
-
-  def fetch(_packet, _), do: :error
-
-  defp do_fetch(packet, protocol, field) do
-    if has_protocol?(packet, protocol) do
-      case get_protocol_field(packet, protocol, field) do
-        nil -> :error
-        value -> {:ok, value}
-      end
-    else
-      :error
+  def fetch(packet, [{protocol, field}]) do
+    case get_protocol_field(packet, protocol, field) do
+      nil -> :error
+      value -> {:ok, value}
     end
   end
+
+  def fetch(packet, {protocol, field}) when is_atom(protocol) and is_atom(field) do
+    case get_protocol_field(packet, protocol, field) do
+      nil -> :error
+      value -> {:ok, value}
+    end
+  end
+
+  def fetch(_packet, _), do: :error
 
   def get(packet, key, default \\ nil) do
     case fetch(packet, key) do
@@ -36,33 +36,6 @@ defmodule ExShark.Packet do
 
   @impl Access
   def pop(_packet, _key), do: raise("Not implemented")
-
-  defmodule Layer do
-    @moduledoc """
-    Represents a protocol layer with support for raw values.
-    """
-    defstruct [:name, :fields, :data, :raw_mode]
-
-    def new(name, fields, data \\ nil) do
-      %__MODULE__{
-        name: name,
-        fields: fields || %{},
-        data: data,
-        raw_mode: false
-      }
-    end
-
-    def get_field(layer, field) do
-      value = Map.get(layer.fields, "#{layer.name}.#{field}")
-      raw_value = Map.get(layer.fields, "#{layer.name}.#{field}.raw")
-
-      if layer.raw_mode && raw_value do
-        raw_value
-      else
-        value
-      end
-    end
-  end
 
   defmodule FrameInfo do
     @moduledoc """
@@ -94,6 +67,20 @@ defmodule ExShark.Packet do
   end
 
   @doc """
+  Gets a protocol field value from the packet.
+  """
+  def get_protocol_field(packet, protocol, field) do
+    with proto_atom <- normalize_protocol_name(protocol),
+         layer when not is_nil(layer) <- Map.get(packet.layers, proto_atom),
+         value when not is_nil(value) <-
+           Layer.get_field(%Layer{name: proto_atom, fields: layer}, field) do
+      value
+    else
+      _ -> nil
+    end
+  end
+
+  @doc """
   Checks if the packet contains a specific protocol.
   """
   def has_protocol?(packet, protocol) do
@@ -107,16 +94,6 @@ defmodule ExShark.Packet do
 
     proto_str = to_string(protocol)
     proto_str in protocols_list || Map.has_key?(packet.layers, protocol)
-  end
-
-  @doc """
-  Gets a protocol field value from the packet.
-  """
-  def get_protocol_field(packet, protocol, field) do
-    case get_layer(packet, protocol) do
-      nil -> nil
-      layer -> Layer.get_field(layer, field)
-    end
   end
 
   @doc """
@@ -158,7 +135,7 @@ defmodule ExShark.Packet do
       case get_in(packet_data, ["layers"]) do
         layers when is_map(layers) and map_size(layers) > 0 ->
           Map.new(layers, fn {k, v} ->
-            protocol = String.to_atom(String.downcase(k))
+            protocol = String.downcase(k) |> String.to_atom()
             {protocol, v}
           end)
 
@@ -167,12 +144,13 @@ defmodule ExShark.Packet do
       end
 
     frame_info = build_frame_info(packet_data)
-    # Removed second parameter
+    # Set the length correctly from frame
+    length = get_in(packet_data, ["layers", "frame", "frame.len"]) || "0"
     highest = determine_highest_layer(layers)
 
     %__MODULE__{
       layers: layers,
-      length: get_in(packet_data, ["layers", "frame", "frame.len"]) || "0",
+      length: length,
       highest_layer: highest,
       summary_fields: get_summary_fields(packet_data),
       frame_info: frame_info,
@@ -182,14 +160,17 @@ defmodule ExShark.Packet do
 
   defp build_frame_info(packet_data) do
     frame_layer = get_in(packet_data, ["layers", "frame"]) || %{}
-    protocols = get_in(frame_layer, ["frame.protocols"]) || ""
-    number = get_in(frame_layer, ["frame.number"]) || ""
-    time = get_in(frame_layer, ["frame.time"]) || ""
+
+    # Make sure to use lower case protocols for consistency
+    protocols =
+      get_in(frame_layer, ["frame.protocols"])
+      |> to_string()
+      |> String.downcase()
 
     %FrameInfo{
       protocols: protocols,
-      number: number,
-      time: time
+      number: get_in(frame_layer, ["frame.number"]) || "",
+      time: get_in(frame_layer, ["frame.time"]) || ""
     }
   end
 

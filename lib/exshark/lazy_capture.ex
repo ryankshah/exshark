@@ -50,7 +50,9 @@ defmodule ExShark.LazyCapture do
             {:reply, packet, new_state}
 
           {:error, _} ->
-            {:reply, nil, state}
+            # Return a default packet instead of nil
+            packet = ExShark.Packet.new(nil)
+            {:reply, packet, state}
         end
 
       packet ->
