@@ -29,4 +29,8 @@ defmodule ExShark.Packet.Layer do
         nil
     end
   end
+
+  def update_mode(%__MODULE__{} = layer, mode) when is_boolean(mode) do
+    %{layer | raw_mode: mode}
+  end
 end

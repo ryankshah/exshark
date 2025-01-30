@@ -73,19 +73,18 @@ defmodule ExShark.Packet do
     protocol = normalize_protocol_name(protocol)
     proto_str = to_string(protocol)
 
-    # Check protocols list if available
-    protocols_match =
-      if packet.frame_info.protocols != "" do
-        packet.frame_info.protocols
-        |> String.split(":")
-        |> Enum.map(&String.trim/1)
-        |> Enum.member?(proto_str)
-      else
-        false
-      end
+    protocols_list =
+      (packet.frame_info.protocols || "")
+      |> String.split(":")
+      |> Enum.map(&String.trim/1)
 
-    # Check layers as fallback
-    protocols_match || Map.has_key?(packet.layers, protocol)
+    Map.has_key?(packet.layers, protocol) ||
+      proto_str in protocols_list ||
+      case protocol do
+        # Handle eth -> sll alias
+        :eth -> Map.has_key?(packet.layers, :sll)
+        _ -> false
+      end
   end
 
   @doc """
@@ -105,8 +104,22 @@ defmodule ExShark.Packet do
     protocol = normalize_protocol_name(protocol)
 
     case Map.get(packet.layers, protocol) do
-      nil -> nil
-      layer_data -> Layer.new(protocol, layer_data)
+      nil ->
+        # Try alias mappings (eth -> sll etc)
+        alias_map = %{eth: :sll}
+        alias_protocol = Map.get(alias_map, protocol)
+
+        if alias_protocol do
+          case Map.get(packet.layers, alias_protocol) do
+            nil -> nil
+            layer_data -> Layer.new(protocol, layer_data)
+          end
+        else
+          nil
+        end
+
+      layer_data ->
+        Layer.new(protocol, layer_data)
     end
   end
 
@@ -165,22 +178,20 @@ defmodule ExShark.Packet do
     # Extract and properly handle protocols
     protocols =
       case get_in(frame_layer, ["frame.protocols"]) do
-        nil ->
-          ""
-
         protocols when is_binary(protocols) ->
           protocols
           |> String.downcase()
           |> String.replace(~r/\s+/, "")
 
         _ ->
-          ""
+          Map.get(frame_layer, "frame_frame_protocols", "")
       end
 
     %FrameInfo{
       protocols: protocols,
-      number: get_in(frame_layer, ["frame.number"]) || "",
-      time: get_in(frame_layer, ["frame.time"]) || ""
+      number:
+        get_in(frame_layer, ["frame.number"]) || get_in(frame_layer, ["frame_frame_number"]) || "",
+      time: get_in(frame_layer, ["frame.time"]) || get_in(frame_layer, ["frame_frame_time"]) || ""
     }
   end
 

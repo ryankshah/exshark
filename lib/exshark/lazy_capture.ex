@@ -42,21 +42,23 @@ defmodule ExShark.LazyCapture do
   end
 
   def handle_call({:get_packet, index}, _from, state) when is_integer(index) do
-    case Map.get(state.loaded_packets, index) do
-      nil ->
-        case load_single_packet(state.file_path, index, state.filter) do
-          {:ok, packet} ->
-            new_state = %{state | loaded_packets: Map.put(state.loaded_packets, index, packet)}
-            {:reply, packet, new_state}
+    if index >= 0 && index < state.total_packets do
+      case Map.get(state.loaded_packets, index) do
+        nil ->
+          case load_single_packet(state.file_path, index, state.filter) do
+            {:ok, packet} ->
+              new_state = %{state | loaded_packets: Map.put(state.loaded_packets, index, packet)}
+              {:reply, packet, new_state}
 
-          {:error, _} ->
-            # Return a default packet instead of nil
-            packet = ExShark.Packet.new(nil)
-            {:reply, packet, state}
-        end
+            {:error, reason} ->
+              {:reply, {:error, reason}, state}
+          end
 
-      packet ->
-        {:reply, packet, state}
+        packet ->
+          {:reply, packet, state}
+      end
+    else
+      {:reply, {:error, "Index out of range"}, state}
     end
   end
 
