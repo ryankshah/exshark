@@ -71,21 +71,11 @@ defmodule ExShark.LazyCapture do
   end
 
   defp count_packets(file_path) do
-    case System.cmd("tshark", ["-r", file_path, "-T", "ek", "-c", "1"], stderr_to_stdout: true) do
-      {output, 0} ->
-        case String.split(output, "\n", trim: true) do
-          [first | _] ->
-            case Jason.decode(first) do
-              {:ok, _} -> {:ok, 1}
-              _ -> {:error, "Invalid JSON output"}
-            end
+    args = ["-r", file_path, "-T", "ek", "-c", "1"]
 
-          _ ->
-            {:error, "No packets found"}
-        end
-
-      {error, _} ->
-        {:error, "Failed to read file: #{error}"}
+    case run_tshark(args) do
+      {:ok, _packet} -> {:ok, 1}
+      error -> error
     end
   end
 
@@ -100,21 +90,27 @@ defmodule ExShark.LazyCapture do
       "-n"
     ]
 
+    run_tshark(args)
+  end
+
+  defp run_tshark(args) do
     case System.cmd("tshark", args, stderr_to_stdout: true) do
-      {output, 0} ->
-        case String.split(output, "\n", trim: true) do
-          [first | _] ->
-            case Jason.decode(first) do
-              {:ok, json} -> {:ok, ExShark.Packet.new(json)}
-              {:error, reason} -> {:error, "JSON parse error: #{reason}"}
-            end
+      {output, 0} -> parse_tshark_output(output)
+      {error, _} -> {:error, "tshark error: #{error}"}
+    end
+  end
 
-          _ ->
-            {:error, "No packet found"}
-        end
+  defp parse_tshark_output(output) do
+    case String.split(output, "\n", trim: true) do
+      [first | _] -> parse_json_packet(first)
+      _ -> {:error, "No packets found"}
+    end
+  end
 
-      {error, _} ->
-        {:error, "tshark error: #{error}"}
+  defp parse_json_packet(json_string) do
+    case Jason.decode(json_string) do
+      {:ok, json} -> {:ok, ExShark.Packet.new(json)}
+      {:error, reason} -> {:error, "JSON parse error: #{reason}"}
     end
   end
 
@@ -145,10 +141,5 @@ defmodule ExShark.LazyCapture do
       {error, _} ->
         {:error, "tshark error: #{error}"}
     end
-  end
-
-  defp find_tshark do
-    System.find_executable("tshark") ||
-      raise "tshark executable not found in PATH"
   end
 end

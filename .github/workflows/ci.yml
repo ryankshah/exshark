@@ -14,9 +14,15 @@ jobs:
     name: Build and test
     runs-on: ubuntu-22.04
     strategy:
+      fail-fast: false
       matrix:
-        elixir: ['1.14.5', '1.15.7']
-        otp: ['25.3', '26.0']
+        include:
+          - elixir: '1.18.2'
+            otp: '27.2'
+          - elixir: '1.15.7'
+            otp: '26.0'
+          - elixir: '1.14.5'
+            otp: '25.3'
 
     steps:
     - uses: actions/checkout@v4
@@ -35,7 +41,6 @@ jobs:
         sudo DEBIAN_FRONTEND=noninteractive dpkg-reconfigure wireshark-common
         sudo setcap cap_net_raw,cap_net_admin+eip $(which tcpdump)
         sudo setcap cap_net_raw,cap_net_admin+eip $(which dumpcap)
-        sudo chmod +x $(which dumpcap)
         sudo usermod -a -G wireshark $USER || true
         groups
 
@@ -46,8 +51,11 @@ jobs:
         key: ${{ runner.os }}-mix-${{ hashFiles('**/mix.lock') }}
         restore-keys: ${{ runner.os }}-mix-
 
-    - name: Install dependencies
-      run: mix deps.get
+    - name: Install mix dependencies
+      run: |
+        mix local.hex --force
+        mix local.rebar --force
+        mix deps.get
 
     - name: Check formatting
       run: |
@@ -68,9 +76,9 @@ jobs:
     - name: Run Dialyzer
       run: mix dialyzer
 
-    - name: Upload coverage artifacts
+    - name: Upload coverage report
       uses: actions/upload-artifact@v4
       with:
         name: coverage-report
         path: cover/
-        if-no-files-found: ignore
+        if-no-files-found: error
