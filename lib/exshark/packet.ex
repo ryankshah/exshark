@@ -67,33 +67,35 @@ defmodule ExShark.Packet do
   end
 
   @doc """
-  Gets a protocol field value from the packet.
-  """
-  def get_protocol_field(packet, protocol, field) do
-    with proto_atom <- normalize_protocol_name(protocol),
-         layer when not is_nil(layer) <- Map.get(packet.layers, proto_atom),
-         value when not is_nil(value) <-
-           Layer.get_field(%Layer{name: proto_atom, fields: layer}, field) do
-      value
-    else
-      _ -> nil
-    end
-  end
-
-  @doc """
   Checks if the packet contains a specific protocol.
   """
   def has_protocol?(packet, protocol) do
     protocol = normalize_protocol_name(protocol)
-
-    protocols_list =
-      packet.frame_info.protocols
-      |> String.downcase()
-      |> String.split(":")
-      |> Enum.map(&String.trim/1)
-
     proto_str = to_string(protocol)
-    proto_str in protocols_list || Map.has_key?(packet.layers, protocol)
+
+    # Check protocols list if available
+    protocols_match =
+      if packet.frame_info.protocols != "" do
+        packet.frame_info.protocols
+        |> String.split(":")
+        |> Enum.map(&String.trim/1)
+        |> Enum.member?(proto_str)
+      else
+        false
+      end
+
+    # Check layers as fallback
+    protocols_match || Map.has_key?(packet.layers, protocol)
+  end
+
+  @doc """
+  Gets a protocol field value from the packet.
+  """
+  def get_protocol_field(packet, protocol, field) do
+    case get_layer(packet, protocol) do
+      nil -> nil
+      layer -> Layer.get_field(layer, field)
+    end
   end
 
   @doc """
@@ -144,9 +146,8 @@ defmodule ExShark.Packet do
       end
 
     frame_info = build_frame_info(packet_data)
-    # Set the length correctly from frame
+    highest = determine_highest_layer(layers, frame_info.protocols)
     length = get_in(packet_data, ["layers", "frame", "frame.len"]) || "0"
-    highest = determine_highest_layer(layers)
 
     %__MODULE__{
       layers: layers,
@@ -161,11 +162,20 @@ defmodule ExShark.Packet do
   defp build_frame_info(packet_data) do
     frame_layer = get_in(packet_data, ["layers", "frame"]) || %{}
 
-    # Make sure to use lower case protocols for consistency
+    # Extract and properly handle protocols
     protocols =
-      get_in(frame_layer, ["frame.protocols"])
-      |> to_string()
-      |> String.downcase()
+      case get_in(frame_layer, ["frame.protocols"]) do
+        nil ->
+          ""
+
+        protocols when is_binary(protocols) ->
+          protocols
+          |> String.downcase()
+          |> String.replace(~r/\s+/, "")
+
+        _ ->
+          ""
+      end
 
     %FrameInfo{
       protocols: protocols,
@@ -180,19 +190,21 @@ defmodule ExShark.Packet do
 
   defp get_summary_fields(_), do: %{}
 
-  defp determine_highest_layer(layers) do
+  defp determine_highest_layer(layers, protocols_str) do
     protocol_order = ~w(eth ip tcp udp dns icmp http tls)
 
-    highest =
-      layers
-      |> Map.keys()
-      |> Enum.map(&to_string/1)
+    available_protocols =
+      if protocols_str != "" do
+        protocols_str |> String.split(":") |> Enum.map(&String.trim/1)
+      else
+        Map.keys(layers) |> Enum.map(&to_string/1)
+      end
       |> Enum.filter(&(&1 in protocol_order))
-      |> Enum.sort_by(fn proto ->
-        Enum.find_index(protocol_order, &(&1 == proto)) || -1
-      end)
-      |> List.last()
+      |> Enum.sort_by(&Enum.find_index(protocol_order, fn x -> x == &1 end))
 
-    if highest, do: String.upcase(highest), else: "UNKNOWN"
+    case List.last(available_protocols) do
+      nil -> "UNKNOWN"
+      proto -> String.upcase(proto)
+    end
   end
 end
