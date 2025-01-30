@@ -103,31 +103,23 @@ defmodule ExShark.AsyncCapture do
   end
 
   defp process_packets(file_path, callback, opts) do
-    try do
-      file_path
-      |> ExShark.read_file(opts)
-      |> Enum.each(fn pkt ->
-        try do
-          case callback.(pkt) do
-            {:ok, _} -> :ok
-            :ok -> :ok
-            {:error, reason} -> raise "Callback failed: #{inspect(reason)}"
-            other -> raise "Unexpected callback return: #{inspect(other)}"
-          end
-        rescue
-          e -> raise "Callback error: #{Exception.message(e)}"
-        end
-      end)
-
-      :ok
-    rescue
-      e ->
-        error_msg = Exception.message(e)
-        reraise "Failed to process packets: #{error_msg}", __STACKTRACE__
-    catch
-      :exit, reason ->
-        reraise "Failed to process packets: Task exited - #{inspect(reason)}", __STACKTRACE__
-    end
+    file_path
+    |> ExShark.read_file(opts)
+    |> Enum.each(fn pkt ->
+      case callback.(pkt) do
+        {:ok, _} -> :ok
+        :ok -> :ok
+        {:error, reason} -> raise "Callback failed: #{inspect(reason)}"
+        other -> raise "Unexpected callback return: #{inspect(other)}"
+      end
+    end)
+  rescue
+    e ->
+      error_msg = Exception.message(e)
+      reraise "Failed to process packets: #{error_msg}", __STACKTRACE__
+  catch
+    :exit, reason ->
+      reraise "Failed to process packets: Task exited - #{inspect(reason)}", __STACKTRACE__
   end
 
   @doc """
