@@ -83,28 +83,22 @@ defmodule ExShark.LazyCapture do
     filter_arg = if filter && filter != "", do: ["-Y", filter], else: []
     args = ["-r", file_path, "-c", "#{index + 1}", "-T", "ek", "-n"] ++ filter_arg
 
-    case System.cmd("tshark", args) do
-      {output, 0} ->
-        case String.split(output, "\n", trim: true) do
-          [] ->
-            {:error, "No packets found"}
-
-          packets ->
-            parsed_packets =
-              packets
-              |> Enum.map(&Jason.decode!/1)
-              |> Enum.map(&ExShark.Packet.new/1)
-
-            if index < length(parsed_packets) do
-              {:ok, Enum.at(parsed_packets, index)}
-            else
-              {:error, "Packet index out of range"}
-            end
-        end
-
-      {error, _} ->
-        {:error, "tshark error: #{error}"}
+    with {output, 0} <- System.cmd("tshark", args),
+         packets when packets != [] <- String.split(output, "\n", trim: true),
+         parsed_packets <- parse_packets(packets),
+         true <- index < length(parsed_packets) do
+      {:ok, Enum.at(parsed_packets, index)}
+    else
+      {error, _} -> {:error, "tshark error: #{error}"}
+      [] -> {:error, "No packets found"}
+      false -> {:error, "Packet index out of range"}
     end
+  end
+
+  defp parse_packets(packets) do
+    packets
+    |> Enum.map(&Jason.decode!/1)
+    |> Enum.map(&ExShark.Packet.new/1)
   end
 
   defp run_tshark(args) do

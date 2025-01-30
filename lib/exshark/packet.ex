@@ -6,32 +6,21 @@ defmodule ExShark.Packet do
   @behaviour Access
 
   @impl Access
-  def fetch(packet, key) do
-    case key do
-      # Handle keyword list format (e.g. [eth: :src])
-      [{protocol, field}] ->
-        if has_protocol?(packet, protocol) do
-          case get_protocol_field(packet, protocol, field) do
-            nil -> :error
-            value -> {:ok, value}
-          end
-        else
-          :error
-        end
+  def fetch(packet, [{protocol, field}]), do: do_fetch(packet, protocol, field)
 
-      # Handle tuple format (e.g. {:eth, :src})
-      {protocol, field} when is_atom(protocol) and is_atom(field) ->
-        if has_protocol?(packet, protocol) do
-          case get_protocol_field(packet, protocol, field) do
-            nil -> :error
-            value -> {:ok, value}
-          end
-        else
-          :error
-        end
+  def fetch(packet, {protocol, field}) when is_atom(protocol) and is_atom(field),
+    do: do_fetch(packet, protocol, field)
 
-      _ ->
-        :error
+  def fetch(_packet, _), do: :error
+
+  defp do_fetch(packet, protocol, field) do
+    if has_protocol?(packet, protocol) do
+      case get_protocol_field(packet, protocol, field) do
+        nil -> :error
+        value -> {:ok, value}
+      end
+    else
+      :error
     end
   end
 
