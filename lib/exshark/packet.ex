@@ -8,7 +8,13 @@ defmodule ExShark.Packet do
   # Implement Access behaviour
   @impl Access
   def fetch(packet, {protocol, field}) when is_atom(protocol) and is_atom(field) do
-    case get_protocol_field(packet, protocol, field) do
+    {proto, fld} =
+      case protocol do
+        [p, f] -> {p, f}
+        _ -> {protocol, field}
+      end
+
+    case get_protocol_field(packet, proto, fld) do
       nil -> :error
       value -> {:ok, value}
     end
@@ -96,13 +102,24 @@ defmodule ExShark.Packet do
 
   defp build_packet(packet_data) do
     layers =
-      Map.get(packet_data, "layers", %{})
-      |> Map.new(fn {k, v} -> {String.to_atom(k), v} end)
+      case get_in(packet_data, ["layers"]) do
+        layers when is_map(layers) and map_size(layers) > 0 ->
+          # Convert protocol names to atoms and preserve layer data
+          Map.new(layers, fn {k, v} ->
+            protocol = String.to_atom(k)
+            {protocol, v}
+          end)
+
+        _ ->
+          %{}
+      end
+
+    highest = determine_highest_layer(layers)
 
     %__MODULE__{
       layers: layers,
       length: get_in(packet_data, ["layers", "frame", "frame.len"]) || "0",
-      highest_layer: determine_highest_layer(layers),
+      highest_layer: highest,
       summary_fields: get_summary_fields(packet_data),
       frame_info: build_frame_info(packet_data),
       raw_mode: false

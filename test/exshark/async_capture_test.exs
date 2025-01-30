@@ -60,8 +60,12 @@ defmodule ExShark.AsyncCaptureTest do
       end
 
       {:ok, results} = AsyncCapture.apply_on_packets_async(pcap, callback)
-      assert length(results) > 0
-      assert Enum.all?(results, fn {:ok, layer} -> is_binary(layer) end)
+
+      # Fix result extraction
+      processed_results = for {:ok, {:ok, layer}} <- results, do: layer
+
+      assert length(processed_results) > 0
+      assert Enum.all?(processed_results, &is_binary/1)
     end
 
     test "maintains packet order with async callbacks", %{test_pcap: pcap} do
@@ -79,7 +83,7 @@ defmodule ExShark.AsyncCaptureTest do
       end
 
       {:ok, results} = AsyncCapture.apply_on_packets_async(pcap, callback)
-      result_layers = Enum.map(results, fn {:ok, layer} -> layer end)
+      result_layers = for {:ok, {:ok, layer}} <- results, do: layer
 
       assert result_layers == original_layers
     end

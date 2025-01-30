@@ -10,7 +10,7 @@ defmodule ExShark do
   Reads packets from a pcap file and returns them as a list.
 
   ## Example
-      iex> path = Path.join([__DIR__, "../test/support/fixtures/test.pcap"])
+      iex> path = Path.join([__DIR__, "../../test/support/fixtures/test.pcap"])
       iex> packets = ExShark.read_file(path)
       iex> is_list(packets)
       true
