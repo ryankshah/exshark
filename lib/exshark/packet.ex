@@ -102,26 +102,32 @@ defmodule ExShark.Packet do
   """
   def get_layer(packet, protocol) do
     protocol = normalize_protocol_name(protocol)
+    get_layer_with_alias(packet, protocol)
+  end
 
+  defp get_layer_with_alias(packet, protocol) do
     case Map.get(packet.layers, protocol) do
-      nil ->
-        # Try alias mappings (eth -> sll etc)
-        alias_map = %{eth: :sll}
-        alias_protocol = Map.get(alias_map, protocol)
-
-        if alias_protocol do
-          case Map.get(packet.layers, alias_protocol) do
-            nil -> nil
-            layer_data -> Layer.new(protocol, layer_data)
-          end
-        else
-          nil
-        end
-
-      layer_data ->
-        Layer.new(protocol, layer_data)
+      nil -> get_layer_from_alias(packet, protocol)
+      layer_data -> Layer.new(protocol, layer_data)
     end
   end
+
+  defp get_layer_from_alias(packet, protocol) do
+    alias_map = %{eth: :sll}
+
+    case Map.get(alias_map, protocol) do
+      nil ->
+        nil
+
+      alias_protocol ->
+        packet.layers
+        |> Map.get(alias_protocol)
+        |> maybe_create_layer(protocol)
+    end
+  end
+
+  defp maybe_create_layer(nil, _protocol), do: nil
+  defp maybe_create_layer(layer_data, protocol), do: Layer.new(protocol, layer_data)
 
   # Private Functions
 

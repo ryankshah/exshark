@@ -1,10 +1,4 @@
 defmodule ExShark.LazyCapture do
-  @moduledoc """
-  Provides lazy loading of PCAP files for memory-efficient packet processing.
-  Allows loading and analyzing packets on-demand rather than loading entire 
-  capture files into memory at once.
-  """
-
   use GenServer
 
   defstruct [:file_path, :filter, :loaded_packets, :total_packets]
@@ -41,24 +35,14 @@ defmodule ExShark.LazyCapture do
     GenServer.call(pid, :total_packets)
   end
 
+  # Group all handle_call/3 clauses together
   def handle_call({:get_packet, index}, _from, state) when is_integer(index) do
-    if index >= 0 && index < state.total_packets do
-      case Map.get(state.loaded_packets, index) do
-        nil ->
-          case load_single_packet(state.file_path, index, state.filter) do
-            {:ok, packet} ->
-              new_state = %{state | loaded_packets: Map.put(state.loaded_packets, index, packet)}
-              {:reply, packet, new_state}
-
-            {:error, reason} ->
-              {:reply, {:error, reason}, state}
-          end
-
-        packet ->
-          {:reply, packet, state}
-      end
+    with true <- is_valid_index?(index, state.total_packets),
+         {:ok, packet} <- get_or_load_packet(index, state) do
+      {:reply, packet, update_loaded_packets(state, index, packet)}
     else
-      {:reply, {:error, "Index out of range"}, state}
+      false -> {:reply, {:error, "Index out of range"}, state}
+      {:error, reason} -> {:reply, {:error, reason}, state}
     end
   end
 
@@ -75,6 +59,19 @@ defmodule ExShark.LazyCapture do
 
   def handle_call(:total_packets, _from, state) do
     {:reply, state.total_packets, state}
+  end
+
+  defp is_valid_index?(index, total), do: index >= 0 && index < total
+
+  defp get_or_load_packet(index, state) do
+    case Map.get(state.loaded_packets, index) do
+      nil -> load_single_packet(state.file_path, index, state.filter)
+      packet -> {:ok, packet}
+    end
+  end
+
+  defp update_loaded_packets(state, index, packet) do
+    %{state | loaded_packets: Map.put(state.loaded_packets, index, packet)}
   end
 
   defp load_single_packet(file_path, index, filter) do
