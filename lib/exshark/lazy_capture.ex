@@ -1,4 +1,10 @@
 defmodule ExShark.LazyCapture do
+  @moduledoc """
+  Provides lazy loading of PCAP files for memory-efficient packet processing.
+  Allows loading and analyzing packets on-demand rather than loading entire 
+  capture files into memory at once.
+  """
+
   use GenServer
 
   defstruct [:file_path, :filter, :loaded_packets, :total_packets]
@@ -71,26 +77,23 @@ defmodule ExShark.LazyCapture do
     filter_arg = if filter && filter != "", do: ["-Y", filter], else: []
     args = ["-r", file_path, "-c", "#{index + 1}", "-T", "ek", "-n"] ++ filter_arg
 
-    case System.cmd("tshark", args) do
-      {output, 0} ->
-        case String.split(output, "\n", trim: true) do
-          [] ->
-            {:error, "No packets found"}
+    with {output, 0} <- System.cmd("tshark", args),
+         [_ | _] = packets <- String.split(output, "\n", trim: true),
+         parsed_packets <- Enum.map(packets, &parse_packet/1),
+         packet when not is_nil(packet) <- Enum.at(parsed_packets, index) do
+      {:ok, packet}
+    else
+      {error, _} -> {:error, "tshark error: #{error}"}
+      [] -> {:error, "No packets found"}
+      nil -> {:error, "Invalid packet index"}
+      _ -> {:error, "Failed to parse packet"}
+    end
+  end
 
-          packets ->
-            parsed_packets =
-              packets
-              |> Enum.map(&Jason.decode!/1)
-              |> Enum.map(&ExShark.Packet.new/1)
-
-            case Enum.at(parsed_packets, index) do
-              nil -> {:error, "Invalid packet index"}
-              packet -> {:ok, packet}
-            end
-        end
-
-      {error, _} ->
-        {:error, "tshark error: #{error}"}
+  defp parse_packet(packet_json) do
+    case Jason.decode(packet_json) do
+      {:ok, json} -> ExShark.Packet.new(json)
+      _ -> nil
     end
   end
 
