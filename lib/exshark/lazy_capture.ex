@@ -1,7 +1,4 @@
 defmodule ExShark.LazyCapture do
-  @moduledoc """
-  Provides lazy loading of packets from a capture file.
-  """
   use GenServer
 
   defstruct [:file_path, :filter, :loaded_packets, :total_packets]
@@ -38,23 +35,6 @@ defmodule ExShark.LazyCapture do
     GenServer.call(pid, :total_packets)
   end
 
-  # def handle_call({:get_packet, index}, _from, state) do
-  #   case Map.get(state.loaded_packets, index) do
-  #     nil ->
-  #       case load_single_packet(state.file_path, index, state.filter) do
-  #         {:ok, packet} ->
-  #           new_state = %{state | loaded_packets: Map.put(state.loaded_packets, index, packet)}
-  #           {:reply, packet, new_state}
-
-  #         {:error, _} ->
-  #           {:reply, nil, state}
-  #       end
-
-  #     packet ->
-  #       {:reply, packet, state}
-  #   end
-  # end
-
   def handle_call({:get_packet, index}, _from, state) when is_integer(index) do
     case Map.get(state.loaded_packets, index) do
       nil ->
@@ -87,15 +67,6 @@ defmodule ExShark.LazyCapture do
     {:reply, state.total_packets, state}
   end
 
-  defp count_packets(file_path) do
-    args = ["-r", file_path, "-T", "ek", "-c", "1"]
-
-    case run_tshark(args) do
-      {:ok, _packet} -> {:ok, 1}
-      error -> error
-    end
-  end
-
   defp load_single_packet(file_path, index, filter) do
     filter_arg = if filter && filter != "", do: ["-Y", filter], else: []
     args = ["-r", file_path, "-c", "#{index + 1}", "-T", "ek", "-n"] ++ filter_arg
@@ -123,10 +94,13 @@ defmodule ExShark.LazyCapture do
     end
   end
 
-  defp parse_packets(packets) do
-    packets
-    |> Enum.map(&Jason.decode!/1)
-    |> Enum.map(&ExShark.Packet.new/1)
+  defp count_packets(file_path) do
+    args = ["-r", file_path, "-T", "ek", "-c", "1"]
+
+    case run_tshark(args) do
+      {:ok, _packet} -> {:ok, 1}
+      error -> error
+    end
   end
 
   defp run_tshark(args) do
@@ -154,14 +128,15 @@ defmodule ExShark.LazyCapture do
     args = [
       "-r",
       file_path,
-      "-Y",
-      "frame.number >= #{offset + 1} && frame.number <= #{offset + count}",
       "-T",
       "ek",
+      # Use count to limit packets
+      "-c",
+      "#{offset + count}",
       "-n"
     ]
 
-    case System.cmd("tshark", args, stderr_to_stdout: true) do
+    case System.cmd("tshark", args) do
       {output, 0} ->
         packets =
           output
@@ -169,6 +144,8 @@ defmodule ExShark.LazyCapture do
           |> Enum.map(&Jason.decode/1)
           |> Enum.filter(&match?({:ok, _}, &1))
           |> Enum.map(fn {:ok, json} -> ExShark.Packet.new(json) end)
+          # Take only the requested range
+          |> Enum.slice(offset, count)
           |> Enum.with_index(offset)
           |> Enum.into(%{})
 

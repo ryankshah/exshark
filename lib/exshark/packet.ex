@@ -162,6 +162,7 @@ defmodule ExShark.Packet do
       end
 
     frame_info = build_frame_info(packet_data)
+    # Removed second parameter
     highest = determine_highest_layer(layers)
 
     %__MODULE__{
@@ -194,7 +195,8 @@ defmodule ExShark.Packet do
   defp determine_highest_layer(layers) do
     protocol_order = ~w(eth ip tcp udp dns icmp http)
 
-    highest =
+    # Get highest from layers
+    highest_from_layers =
       layers
       |> Map.keys()
       |> Enum.map(&to_string/1)
@@ -202,6 +204,6 @@ defmodule ExShark.Packet do
       |> Enum.sort_by(&Enum.find_index(protocol_order, fn x -> x == &1 end))
       |> List.last()
 
-    if highest, do: String.upcase(highest), else: "UNKNOWN"
+    if highest_from_layers, do: String.upcase(highest_from_layers), else: "UNKNOWN"
   end
 end
