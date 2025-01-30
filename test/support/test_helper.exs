@@ -11,37 +11,36 @@ defmodule ExShark.TestHelper do
   def fixture_path(filename) do
     Path.join(@fixtures_path, filename)
   end
-
-  def ensure_test_pcap! do
-    File.mkdir_p!(Path.dirname(@test_pcap))
-
-    unless File.exists?(@test_pcap) do
-      # Create a sample pcap with more reliable packet generation
-      ping_args = ["-c", "4", "-i", "0.2", "127.0.0.1"]
-
-      capture_args = [
-        "-w",
-        @test_pcap,
-        "-F",
-        "pcap",
-        "-f",
-        "icmp or ip",
-        "-a",
-        "duration:2",
-        "-i",
-        "any"
-      ]
-
-      System.cmd("ping", ping_args)
-      {output, status} = System.cmd("tshark", capture_args)
-
-      if status != 0 do
-        raise "Failed to create test PCAP: #{output}"
-      end
+  
+def ensure_test_pcap! do
+  File.mkdir_p!(Path.dirname(@test_pcap))
+  
+  unless File.exists?(@test_pcap) do
+    # More reliable PCAP generation
+    System.cmd("ping", ["-c", "4", "8.8.8.8"])
+    
+    capture_args = [
+      "-w", @test_pcap,
+      "-F", "pcap",
+      "-f", "icmp or ip",
+      "-i", "any",
+      "-a", "duration:2",
+      "-c", "10"  # Capture max 10 packets
+    ]
+    
+    {output, status} = System.cmd("tshark", capture_args)
+    
+    if status != 0 do
+      raise "Failed to create test PCAP: #{output}"
     end
-
-    @test_pcap
+    
+    # Verify file was created and contains packets
+    unless File.exists?(@test_pcap) && File.stat!(@test_pcap).size > 0 do
+      raise "Failed to create valid test PCAP file"
+    end
   end
+  
+  @test_pcap
 end
 
 # Create test PCAP on startup

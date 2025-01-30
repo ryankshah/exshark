@@ -101,7 +101,7 @@ defmodule ExShark do
     case Jason.decode(json_string) do
       {:ok, data} when is_map(data) ->
         case get_in(data, ["layers"]) do
-          layers when is_map(layers) -> data
+          layers when is_map(layers) and map_size(layers) > 0 -> data
           _ -> %{"layers" => %{}}
         end
 

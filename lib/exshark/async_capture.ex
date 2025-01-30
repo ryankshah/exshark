@@ -57,9 +57,14 @@ defmodule ExShark.AsyncCapture do
     |> Task.async_stream(
       fn pkt ->
         case callback.(pkt) do
-          {:ok, result} -> result
-          task when is_struct(task, Task) -> Task.await(task, timeout)
-          other -> other
+          {:ok, task} when is_struct(task, Task) ->
+            {:ok, Task.await(task, timeout)}
+
+          {:ok, result} ->
+            {:ok, result}
+
+          other ->
+            other
         end
       end,
       timeout: timeout,
