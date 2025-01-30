@@ -28,7 +28,13 @@ defmodule ExShark do
 
     output
     |> String.split("\n", trim: true)
-    |> Enum.map(&Jason.decode!/1)
+    |> Enum.map(fn line ->
+      case Jason.decode(line) do
+        {:ok, parsed} -> parsed
+        # Default empty packet for failed parses
+        _ -> %{"layers" => %{}}
+      end
+    end)
     |> Enum.map(&Packet.new/1)
   end
 
