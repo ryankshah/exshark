@@ -5,18 +5,25 @@ defmodule ExShark.Packet do
 
   @behaviour Access
 
-  # Implement Access behaviour
   @impl Access
-  def fetch(packet, {protocol, field}) when is_atom(protocol) and is_atom(field) do
-    {proto, fld} =
-      case protocol do
-        [p, f] -> {p, f}
-        _ -> {protocol, field}
-      end
+  def fetch(packet, key) do
+    case key do
+      # Handle keyword list format (e.g. [eth: :src])
+      [{protocol, field}] ->
+        case get_protocol_field(packet, protocol, field) do
+          nil -> :error
+          value -> {:ok, value}
+        end
 
-    case get_protocol_field(packet, proto, fld) do
-      nil -> :error
-      value -> {:ok, value}
+      # Handle tuple format (e.g. {:eth, :src})
+      {protocol, field} when is_atom(protocol) and is_atom(field) ->
+        case get_protocol_field(packet, protocol, field) do
+          nil -> :error
+          value -> {:ok, value}
+        end
+
+      _ ->
+        :error
     end
   end
 
@@ -89,6 +96,49 @@ defmodule ExShark.Packet do
     end
   end
 
+  @doc """
+  Gets a protocol layer from the packet.
+  """
+  def get_layer(packet, protocol) do
+    protocol = normalize_protocol_name(protocol)
+
+    case Map.get(packet.layers, protocol) do
+      nil -> nil
+      layer_data -> Layer.new(protocol, layer_data)
+    end
+  end
+
+  @doc """
+  Checks if the packet contains a specific protocol.
+  """
+  def has_protocol?(packet, protocol) do
+    protocol = normalize_protocol_name(protocol)
+
+    Map.has_key?(packet.layers, protocol) ||
+      String.contains?(packet.frame_info.protocols || "", String.downcase(to_string(protocol)))
+  end
+
+  @doc """
+  Gets a protocol field value from the packet.
+  """
+  def get_protocol_field(packet, protocol, field) do
+    case get_layer(packet, protocol) do
+      nil -> nil
+      layer -> Layer.get_field(layer, field)
+    end
+  end
+
+  # Private Functions
+
+  defp normalize_protocol_name(protocol) when is_atom(protocol), do: protocol
+
+  defp normalize_protocol_name(protocol) when is_binary(protocol) do
+    protocol
+    |> String.downcase()
+    |> String.replace(~r/[^a-z0-9]/, "")
+    |> String.to_atom()
+  end
+
   defp normalize_packet(nil), do: nil
 
   defp normalize_packet(%{} = raw_packet) do
@@ -104,9 +154,8 @@ defmodule ExShark.Packet do
     layers =
       case get_in(packet_data, ["layers"]) do
         layers when is_map(layers) and map_size(layers) > 0 ->
-          # Convert protocol names to atoms and preserve layer data
           Map.new(layers, fn {k, v} ->
-            protocol = String.to_atom(k)
+            protocol = String.to_atom(String.downcase(k))
             {protocol, v}
           end)
 
@@ -114,6 +163,7 @@ defmodule ExShark.Packet do
           %{}
       end
 
+    frame_info = build_frame_info(packet_data)
     highest = determine_highest_layer(layers)
 
     %__MODULE__{
@@ -121,8 +171,19 @@ defmodule ExShark.Packet do
       length: get_in(packet_data, ["layers", "frame", "frame.len"]) || "0",
       highest_layer: highest,
       summary_fields: get_summary_fields(packet_data),
-      frame_info: build_frame_info(packet_data),
+      frame_info: frame_info,
       raw_mode: false
+    }
+  end
+
+  defp build_frame_info(packet_data) do
+    frame_layer = get_in(packet_data, ["layers", "frame"]) || %{}
+    protocols = get_in(frame_layer, ["frame.protocols"]) || ""
+
+    %FrameInfo{
+      protocols: protocols,
+      number: get_in(frame_layer, ["frame.number"]) || "",
+      time: get_in(frame_layer, ["frame.time"]) || ""
     }
   end
 
@@ -132,62 +193,7 @@ defmodule ExShark.Packet do
 
   defp get_summary_fields(_), do: %{}
 
-  defp build_frame_info(raw_packet) do
-    frame_layer = get_in(raw_packet, ["layers", "frame"]) || %{}
-
-    %FrameInfo{
-      protocols: Map.get(frame_layer, "frame.protocols", ""),
-      number: Map.get(frame_layer, "frame.number", ""),
-      time: Map.get(frame_layer, "frame.time", "")
-    }
-  end
-
-  @doc """
-  Gets a protocol layer from the packet.
-  """
-  def get_layer(packet, protocol) do
-    protocol = normalize_protocol_name(protocol)
-
-    case Map.get(packet.layers, protocol) do
-      nil ->
-        nil
-
-      layer_data ->
-        data = Map.get(layer_data, "#{protocol}.data")
-        Layer.new(protocol, layer_data, data)
-    end
-  end
-
-  @doc """
-  Gets a protocol field value from the packet.
-  """
-  def get_protocol_field(packet, protocol, field) do
-    case Map.get(packet.layers, protocol) do
-      nil ->
-        nil
-
-      layer_data ->
-        layer = Layer.new(protocol, layer_data)
-        Layer.get_field(layer, field)
-    end
-  end
-
-  @doc """
-  Checks if the packet contains a specific protocol.
-  """
-  def has_protocol?(packet, protocol) do
-    protocol = normalize_protocol_name(protocol)
-    Map.has_key?(packet.layers, protocol)
-  end
-
-  # Private Functions
-
-  defp normalize_protocol_name(protocol) when is_atom(protocol), do: protocol
-
-  defp normalize_protocol_name(protocol) when is_binary(protocol),
-    do: String.downcase(protocol) |> String.to_atom()
-
-  defp determine_highest_layer(layers) when map_size(layers) > 0 do
+  defp determine_highest_layer(layers) do
     protocol_order = ~w(eth ip tcp udp dns icmp http)
 
     highest =
@@ -200,6 +206,4 @@ defmodule ExShark.Packet do
 
     if highest, do: String.upcase(highest), else: "UNKNOWN"
   end
-
-  defp determine_highest_layer(_), do: "UNKNOWN"
 end

@@ -41,13 +41,13 @@ defmodule ExShark.LazyCapture do
   def handle_call({:get_packet, index}, _from, state) do
     case Map.get(state.loaded_packets, index) do
       nil ->
-        case load_single_packet(state.file_path, index) do
+        case load_single_packet(state.file_path, index, state.filter) do
           {:ok, packet} ->
             new_state = %{state | loaded_packets: Map.put(state.loaded_packets, index, packet)}
             {:reply, packet, new_state}
 
-          {:error, reason} ->
-            {:reply, {:error, reason}, state}
+          {:error, _} ->
+            {:reply, nil, state}
         end
 
       packet ->
@@ -79,18 +79,28 @@ defmodule ExShark.LazyCapture do
     end
   end
 
-  defp load_single_packet(file_path, index) do
-    args = [
-      "-r",
-      file_path,
-      "-Y",
-      "frame.number == #{index + 1}",
-      "-T",
-      "ek",
-      "-n"
-    ]
+  defp load_single_packet(file_path, index, filter) do
+    filter_arg = if filter && filter != "", do: ["-Y", filter], else: []
+    number_arg = ["-r", file_path, "-c", "#{index + 1}", "-T", "ek", "-n"]
 
-    run_tshark(args)
+    args = number_arg ++ filter_arg
+
+    case System.cmd("tshark", args) do
+      {output, 0} ->
+        packets =
+          String.split(output, "\n", trim: true)
+          |> Enum.map(&Jason.decode!/1)
+          |> Enum.map(&ExShark.Packet.new/1)
+
+        if index < length(packets) do
+          {:ok, Enum.at(packets, index)}
+        else
+          {:error, "Packet index out of range"}
+        end
+
+      {error, _} ->
+        {:error, "tshark error: #{error}"}
+    end
   end
 
   defp run_tshark(args) do
