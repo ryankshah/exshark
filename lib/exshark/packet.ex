@@ -1,6 +1,6 @@
 defmodule ExShark.Packet do
   @moduledoc """
-  Represents a parsed network packet with convenient field access and layer information.
+  Represents a parsed network packet with convenient field access.
   """
 
   defmodule Layer do
@@ -12,7 +12,7 @@ defmodule ExShark.Packet do
     def new(name, fields, data \\ nil) do
       %__MODULE__{
         name: name,
-        fields: fields,
+        fields: fields || %{},
         data: data,
         raw_mode: false
       }
@@ -42,23 +42,62 @@ defmodule ExShark.Packet do
   @doc """
   Creates a new Packet struct from raw tshark JSON output.
   """
-  def new(raw_packet, summary_only \\ false) do
+  def new(raw_packet) do
+    case normalize_packet(raw_packet) do
+      nil ->
+        %__MODULE__{
+          layers: %{},
+          length: "0",
+          highest_layer: "UNKNOWN",
+          summary_fields: %{},
+          frame_info: %FrameInfo{protocols: "", number: "", time: ""},
+          raw_mode: false
+        }
+
+      packet_data ->
+        build_packet(packet_data)
+    end
+  end
+
+  defp normalize_packet(nil), do: nil
+
+  defp normalize_packet(%{} = raw_packet) do
+    case raw_packet do
+      %{"layers" => layers} when is_map(layers) -> raw_packet
+      _ -> nil
+    end
+  end
+
+  defp normalize_packet(_), do: nil
+
+  defp build_packet(packet_data) do
     layers =
-      raw_packet
-      |> Map.get("layers", %{})
+      Map.get(packet_data, "layers", %{})
       |> Map.new(fn {k, v} -> {String.to_atom(k), v} end)
 
-    length = get_in(raw_packet, ["layers", "frame", "frame.len"])
-    highest_layer = determine_highest_layer(layers)
-    frame_info = extract_frame_info(raw_packet)
-
     %__MODULE__{
-      layers: if(summary_only, do: nil, else: layers),
-      length: length,
-      highest_layer: highest_layer,
-      summary_fields: extract_summary_fields(raw_packet),
-      frame_info: frame_info,
+      layers: layers,
+      length: get_in(packet_data, ["layers", "frame", "frame.len"]) || "0",
+      highest_layer: determine_highest_layer(layers),
+      summary_fields: get_summary_fields(packet_data),
+      frame_info: build_frame_info(packet_data),
       raw_mode: false
+    }
+  end
+
+  defp get_summary_fields(%{"layers" => layers}) when is_map(layers) do
+    Map.take(layers, ["frame.time", "frame.len", "frame.protocols"])
+  end
+
+  defp get_summary_fields(_), do: %{}
+
+  defp build_frame_info(raw_packet) do
+    frame_layer = get_in(raw_packet, ["layers", "frame"]) || %{}
+
+    %FrameInfo{
+      protocols: Map.get(frame_layer, "frame.protocols", ""),
+      number: Map.get(frame_layer, "frame.number", ""),
+      time: Map.get(frame_layer, "frame.time", "")
     }
   end
 
@@ -100,17 +139,6 @@ defmodule ExShark.Packet do
     Map.has_key?(packet.layers, protocol)
   end
 
-  @doc """
-  Gets a field value from a specific protocol.
-
-  ## Example
-      iex> packet |> ExShark.Packet.get_field({:eth, :src})
-      "00:11:22:33:44:55"
-  """
-  def get_field(packet, {protocol, field} = key) when is_atom(protocol) and is_atom(field) do
-    ExShark.PacketAccess.get(packet, key)
-  end
-
   # Private Functions
 
   defp normalize_protocol_name(protocol) when is_atom(protocol), do: protocol
@@ -118,7 +146,7 @@ defmodule ExShark.Packet do
   defp normalize_protocol_name(protocol) when is_binary(protocol),
     do: String.downcase(protocol) |> String.to_atom()
 
-  defp determine_highest_layer(layers) when is_map(layers) do
+  defp determine_highest_layer(layers) when map_size(layers) > 0 do
     protocol_order = ~w(eth ip tcp udp dns icmp http)
 
     highest =
@@ -133,18 +161,4 @@ defmodule ExShark.Packet do
   end
 
   defp determine_highest_layer(_), do: "UNKNOWN"
-
-  defp extract_frame_info(raw_packet) do
-    frame_layer = get_in(raw_packet, ["layers", "frame"]) || %{}
-
-    %FrameInfo{
-      protocols: Map.get(frame_layer, "frame.protocols", ""),
-      number: Map.get(frame_layer, "frame.number", ""),
-      time: Map.get(frame_layer, "frame.time", "")
-    }
-  end
-
-  defp extract_summary_fields(raw_packet) do
-    Map.take(raw_packet["layers"], ["frame.time", "frame.len", "frame.protocols"])
-  end
 end

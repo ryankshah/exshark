@@ -1,7 +1,7 @@
 defmodule ExShark do
   @moduledoc """
-  ExShark is an Elixir wrapper for tshark (Wireshark's command-line interface) that 
-  enables packet capture and analysis using Wireshark's powerful dissectors.
+  ExShark is an Elixir wrapper for tshark (Wireshark's command-line interface) that enables
+  packet capture and analysis using Wireshark's powerful dissectors.
   """
 
   alias ExShark.Packet
@@ -10,7 +10,7 @@ defmodule ExShark do
   Reads packets from a pcap file and returns them as a list.
 
   ## Example
-      iex> path = "test/support/fixtures/test.pcap"
+      iex> path = Path.join([__DIR__, "../test/support/fixtures/test.pcap"])
       iex> packets = ExShark.read_file(path)
       iex> is_list(packets)
       true
@@ -24,34 +24,26 @@ defmodule ExShark do
         build_filter_args(filter) ++
         build_fields_args(fields)
 
-    {output, 0} = System.cmd(find_tshark(), args, stderr_to_stdout: true)
+    case System.cmd("tshark", args, stderr_to_stdout: true) do
+      {output, 0} ->
+        output
+        |> String.split("\n", trim: true)
+        |> Enum.map(&parse_json/1)
+        |> Enum.map(&Packet.new/1)
 
-    output
-    |> String.split("\n", trim: true)
-    |> Enum.map(fn line ->
-      case Jason.decode(line) do
-        {:ok, parsed} -> parsed
-        # Default empty packet for failed parses
-        _ -> %{"layers" => %{}}
-      end
-    end)
-    |> Enum.map(&Packet.new/1)
+      {error, _} ->
+        raise "tshark error: #{error}"
+    end
   end
 
   @doc """
   Starts a live capture on the specified interface with given options.
   Returns a stream of parsed packets.
 
-  ## Options
-    * `:interface` - Network interface to capture on (default: "any")
-    * `:filter` - Display filter string
-    * `:duration` - Capture duration in seconds
-    * `:packet_count` - Number of packets to capture
-    * `:fields` - List of fields to extract
-
   ## Example
-      iex> ExShark.capture(interface: "eth0", filter: "tcp port 80")
-      #Stream<...>
+      iex> capture = ExShark.capture(interface: "any", packet_count: 1)
+      iex> is_struct(capture, Stream)
+      true
   """
   def capture(opts \\ []) do
     interface = Keyword.get(opts, :interface, "any")
@@ -61,7 +53,7 @@ defmodule ExShark do
     fields = Keyword.get(opts, :fields, [])
 
     args =
-      ["-i", interface, "-T", "ek", "-n"] ++
+      ["-i", interface, "-T", "ek", "-l", "-n"] ++
         build_filter_args(filter) ++
         build_duration_args(duration) ++
         build_count_args(packet_count) ++
@@ -69,7 +61,7 @@ defmodule ExShark do
 
     Port.open({:spawn_executable, find_tshark()}, [:binary, :exit_status, args: args])
     |> stream_output()
-    |> Stream.map(&Jason.decode!/1)
+    |> Stream.map(&parse_json/1)
     |> Stream.map(&Packet.new/1)
   end
 
@@ -103,5 +95,12 @@ defmodule ExShark do
       end,
       fn port -> Port.close(port) end
     )
+  end
+
+  defp parse_json(json_string) do
+    case Jason.decode(json_string) do
+      {:ok, data} -> data
+      {:error, _} -> %{}
+    end
   end
 end
