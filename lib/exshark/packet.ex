@@ -98,10 +98,15 @@ defmodule ExShark.Packet do
   """
   def has_protocol?(packet, protocol) do
     protocol = normalize_protocol_name(protocol)
-    protocols_list = String.split(packet.frame_info.protocols || "", ":")
 
-    String.downcase(to_string(protocol)) in protocols_list ||
-      Map.has_key?(packet.layers, protocol)
+    protocols_list =
+      packet.frame_info.protocols
+      |> String.downcase()
+      |> String.split(":")
+      |> Enum.map(&String.trim/1)
+
+    proto_str = to_string(protocol)
+    proto_str in protocols_list || Map.has_key?(packet.layers, protocol)
   end
 
   @doc """
@@ -178,11 +183,13 @@ defmodule ExShark.Packet do
   defp build_frame_info(packet_data) do
     frame_layer = get_in(packet_data, ["layers", "frame"]) || %{}
     protocols = get_in(frame_layer, ["frame.protocols"]) || ""
+    number = get_in(frame_layer, ["frame.number"]) || ""
+    time = get_in(frame_layer, ["frame.time"]) || ""
 
     %FrameInfo{
       protocols: protocols,
-      number: get_in(frame_layer, ["frame.number"]) || "",
-      time: get_in(frame_layer, ["frame.time"]) || ""
+      number: number,
+      time: time
     }
   end
 
@@ -193,17 +200,18 @@ defmodule ExShark.Packet do
   defp get_summary_fields(_), do: %{}
 
   defp determine_highest_layer(layers) do
-    protocol_order = ~w(eth ip tcp udp dns icmp http)
+    protocol_order = ~w(eth ip tcp udp dns icmp http tls)
 
-    # Get highest from layers
-    highest_from_layers =
+    highest =
       layers
       |> Map.keys()
       |> Enum.map(&to_string/1)
       |> Enum.filter(&(&1 in protocol_order))
-      |> Enum.sort_by(&Enum.find_index(protocol_order, fn x -> x == &1 end))
+      |> Enum.sort_by(fn proto ->
+        Enum.find_index(protocol_order, &(&1 == proto)) || -1
+      end)
       |> List.last()
 
-    if highest_from_layers, do: String.upcase(highest_from_layers), else: "UNKNOWN"
+    if highest, do: String.upcase(highest), else: "UNKNOWN"
   end
 end

@@ -74,12 +74,13 @@ defmodule ExShark.LazyCapture do
   end
 
   defp load_single_packet(file_path, index, filter) do
-    filter_arg = if filter && filter != "", do: ["-Y", filter], else: []
-    args = ["-r", file_path, "-c", "#{index + 1}", "-T", "ek", "-n"] ++ filter_arg
+    filter_args = if filter && filter != "", do: ["-Y", filter], else: []
+    base_args = ["-r", file_path, "-T", "ek", "-n", "-c", "#{index + 1}"]
+    args = base_args ++ filter_args
 
     with {output, 0} <- System.cmd("tshark", args),
-         [_ | _] = packets <- String.split(output, "\n", trim: true),
-         parsed_packets <- Enum.map(packets, &parse_packet/1),
+         [_ | _] = lines <- String.split(output, "\n", trim: true),
+         parsed_packets <- parse_packets(lines),
          packet when not is_nil(packet) <- Enum.at(parsed_packets, index) do
       {:ok, packet}
     else
@@ -90,11 +91,15 @@ defmodule ExShark.LazyCapture do
     end
   end
 
-  defp parse_packet(packet_json) do
-    case Jason.decode(packet_json) do
-      {:ok, json} -> ExShark.Packet.new(json)
-      _ -> nil
-    end
+  defp parse_packets(lines) do
+    lines
+    |> Enum.map(fn line ->
+      case Jason.decode(line) do
+        {:ok, json} -> ExShark.Packet.new(json)
+        _ -> nil
+      end
+    end)
+    |> Enum.filter(& &1)
   end
 
   defp count_packets(file_path) do
