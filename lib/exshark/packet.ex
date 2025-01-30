@@ -7,6 +7,8 @@ defmodule ExShark.Packet do
 
   @behaviour Access
 
+  @known_protocols ~w(eth ip tcp udp dns icmp http tls sll)
+
   @impl Access
   def fetch(packet, [{protocol, field}]) do
     case get_protocol_field(packet, protocol, field) do
@@ -79,12 +81,14 @@ defmodule ExShark.Packet do
       |> String.split(":")
       |> Enum.map(&String.trim/1)
 
-    Map.has_key?(packet.layers, protocol_atom) ||
-      protocol_str in protocols_list ||
-      case protocol_atom do
-        :eth -> Map.has_key?(packet.layers, :sll)
-        _ -> false
-      end
+    case protocol_atom do
+      :eth -> has_ethernet?(packet)
+      _ -> Map.has_key?(packet.layers, protocol_atom) || protocol_str in protocols_list
+    end
+  end
+
+  defp has_ethernet?(packet) do
+    Map.has_key?(packet.layers, :eth) || Map.has_key?(packet.layers, :sll)
   end
 
   @doc """
@@ -112,22 +116,22 @@ defmodule ExShark.Packet do
     end
   end
 
-  defp get_layer_from_alias(packet, protocol) do
-    alias_map = %{eth: :sll}
-
-    case Map.get(alias_map, protocol) do
-      nil ->
-        nil
-
-      alias_protocol ->
-        packet.layers
-        |> Map.get(alias_protocol)
-        |> maybe_create_layer(protocol)
+  defp get_layer_from_alias(packet, :eth) do
+    case Map.get(packet.layers, :sll) do
+      nil -> nil
+      layer_data -> Layer.new(:eth, convert_sll_to_eth(layer_data))
     end
   end
 
-  defp maybe_create_layer(nil, _protocol), do: nil
-  defp maybe_create_layer(layer_data, protocol), do: Layer.new(protocol, layer_data)
+  defp get_layer_from_alias(_packet, _protocol), do: nil
+
+  defp convert_sll_to_eth(sll_data) do
+    %{
+      "eth.src" => sll_data["sll_sll_src_eth"],
+      "eth.dst" => sll_data["sll_sll_src_eth"],
+      "eth.type" => sll_data["sll_sll_etype"]
+    }
+  end
 
   defp normalize_protocol_name(protocol) when is_atom(protocol), do: protocol
 
@@ -212,21 +216,20 @@ defmodule ExShark.Packet do
   defp get_summary_fields(_), do: %{}
 
   defp determine_highest_layer(layers, protocols_str) do
-    protocol_order = ~w(eth ip tcp udp icmp dns http tls)
-
-    available_protocols =
+    protocol_list =
       if protocols_str != "" do
         protocols_str
         |> String.downcase()
         |> String.split(":")
         |> Enum.map(&String.trim/1)
+        |> Enum.filter(&(&1 in @known_protocols))
       else
-        Map.keys(layers) |> Enum.map(&to_string/1)
+        Map.keys(layers)
+        |> Enum.map(&to_string/1)
+        |> Enum.filter(&(&1 in @known_protocols))
       end
-      |> Enum.filter(&(&1 in protocol_order))
-      |> Enum.sort_by(&Enum.find_index(protocol_order, fn x -> x == &1 end))
 
-    case List.last(available_protocols) do
+    case Enum.filter(protocol_list, &(&1 in @known_protocols)) |> List.last() do
       nil -> "UNKNOWN"
       proto -> String.upcase(proto)
     end

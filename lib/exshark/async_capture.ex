@@ -22,7 +22,7 @@ defmodule ExShark.AsyncCapture do
     timeout = Keyword.get(opts, :timeout, :infinity)
 
     task =
-      Task.Supervisor.async(ExShark.TaskSupervisor, fn ->
+      Task.Supervisor.async_nolink(ExShark.TaskSupervisor, fn ->
         process_packets(file_path, callback, opts)
       end)
 
@@ -47,7 +47,7 @@ defmodule ExShark.AsyncCapture do
     timeout = Keyword.get(opts, :timeout, :infinity)
 
     task =
-      Task.Supervisor.async(ExShark.TaskSupervisor, fn ->
+      Task.Supervisor.async_nolink(ExShark.TaskSupervisor, fn ->
         process_async_packets(file_path, callback, timeout, opts)
       end)
 
@@ -66,37 +66,30 @@ defmodule ExShark.AsyncCapture do
   end
 
   defp process_async_packets(file_path, callback, timeout, opts) do
-    task_supervisor = ExShark.TaskSupervisor
-
     stream_result =
       file_path
       |> ExShark.read_file(opts)
-      |> Task.Supervisor.async_stream_nolink(
-        task_supervisor,
-        fn pkt ->
-          try do
-            case callback.(pkt) do
-              {:ok, task} when is_struct(task, Task) ->
-                {:ok, Task.await(task, timeout)}
+      |> Stream.map(fn pkt ->
+        try do
+          case callback.(pkt) do
+            {:ok, task} when is_struct(task, Task) ->
+              {:ok, Task.await(task, timeout)}
 
-              {:ok, result} ->
-                {:ok, result}
+            {:ok, result} ->
+              {:ok, result}
 
-              {:error, reason} ->
-                {:error, reason}
+            {:error, reason} ->
+              {:error, reason}
 
-              other ->
-                {:error, "Unexpected callback return: #{inspect(other)}"}
-            end
-          rescue
-            e -> {:error, Exception.message(e)}
-          catch
-            :exit, reason -> {:error, "Task exited: #{inspect(reason)}"}
+            other ->
+              {:error, "Unexpected callback return: #{inspect(other)}"}
           end
-        end,
-        timeout: timeout,
-        ordered: true
-      )
+        rescue
+          e -> {:error, Exception.message(e)}
+        catch
+          :exit, reason -> {:error, "Task exited: #{inspect(reason)}"}
+        end
+      end)
       |> Enum.to_list()
 
     {:ok, stream_result}
@@ -132,11 +125,10 @@ defmodule ExShark.AsyncCapture do
   """
   def capture_live(callback, opts \\ []) do
     capture_opts = Keyword.put_new(opts, :timeout, 5000)
-    task_supervisor = ExShark.TaskSupervisor
 
     ExShark.capture(capture_opts)
     |> Stream.each(fn pkt ->
-      Task.Supervisor.start_child(task_supervisor, fn ->
+      Task.Supervisor.start_child(ExShark.TaskSupervisor, fn ->
         try do
           case callback.(pkt) do
             {:ok, _} ->
