@@ -82,14 +82,11 @@ defmodule ExShark.Packet do
   @doc """
   Checks if the packet contains a specific protocol.
   """
+  def has_protocol?(packet, :eth), do: has_ethernet?(packet)
   def has_protocol?(packet, protocol) do
     protocol = normalize_protocol_name(protocol)
     protocols_list = get_protocols_list(packet)
-
-    cond do
-      protocol == :eth -> has_ethernet?(packet)
-      true -> protocol in protocols_list || Map.has_key?(packet.layers, protocol)
-    end
+    protocol in protocols_list || Map.has_key?(packet.layers, protocol)
   end
 
   @doc """
@@ -107,19 +104,20 @@ defmodule ExShark.Packet do
   @doc """
   Gets a protocol layer from the packet.
   """
+  def get_layer(packet, :eth) do
+    if Map.has_key?(packet.layers, :sll) do
+      sll_layer = Map.get(packet.layers, :sll)
+      Layer.new(:eth, convert_sll_to_eth(sll_layer))
+    else
+      layer_data = Map.get(packet.layers, :eth)
+      if layer_data, do: Layer.new(:eth, layer_data)
+    end
+  end
+
   def get_layer(packet, protocol) do
-    protocol = normalize_protocol_name(protocol)
-
-    cond do
-      protocol == :eth && Map.has_key?(packet.layers, :sll) ->
-        sll_layer = Map.get(packet.layers, :sll)
-        Layer.new(:eth, convert_sll_to_eth(sll_layer))
-
-      true ->
-        case Map.get(packet.layers, protocol) do
-          nil -> nil
-          layer_data -> Layer.new(protocol, layer_data)
-        end
+    case Map.get(packet.layers, protocol) do
+      nil -> nil
+      layer_data -> Layer.new(protocol, layer_data)
     end
   end
 
@@ -224,15 +222,15 @@ defmodule ExShark.Packet do
   end
 
   defp get_frame_number(frame_layer) do
-    get_in(frame_layer, ["frame.number"]) ||
-      get_in(frame_layer, ["frame_frame_number"]) ||
-      ""
+    get_in(frame_layer, ["frame.number"]) || 
+    get_in(frame_layer, ["frame_frame_number"]) || 
+    ""
   end
 
   defp get_frame_time(frame_layer) do
-    get_in(frame_layer, ["frame.time"]) ||
-      get_in(frame_layer, ["frame_frame_time"]) ||
-      ""
+    get_in(frame_layer, ["frame.time"]) || 
+    get_in(frame_layer, ["frame_frame_time"]) || 
+    ""
   end
 
   defp get_summary_fields(%{"layers" => layers}) when is_map(layers) do
@@ -252,9 +250,9 @@ defmodule ExShark.Packet do
   defp determine_highest_layer(layers, protocols_str) do
     available_protocols =
       if protocols_str != "" do
-        protocols_str
+        protocols_str 
         |> String.downcase()
-        |> String.split(":")
+        |> String.split(":") 
         |> Enum.map(&String.trim/1)
       else
         Map.keys(layers) |> Enum.map(&to_string/1)
