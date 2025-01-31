@@ -102,24 +102,24 @@ defmodule ExShark do
 
   defp create_packet_stream(port) do
     Stream.resource(
-      fn -> {port, [], false} end,
+      fn -> {port, []} end,
       &handle_packet_stream/1,
       &cleanup_capture/1
     )
   end
 
-  defp handle_packet_stream({port, [], false}) do
+  defp handle_packet_stream({port, []}) do
     receive do
       {^port, {:data, {:eol, line}}} ->
         handle_packet_data(line)
 
       {^port, {:exit_status, _}} ->
-        {:halt, {port, [], true}}
+        {:halt, port}
 
       _other ->
-        {[], {port, [], false}}
+        {[], {port, []}}
     after
-      @default_timeout -> {:halt, {port, [], true}}
+      @default_timeout -> {:halt, port}
     end
   end
 
@@ -130,10 +130,10 @@ defmodule ExShark do
   defp handle_packet_data(line) do
     case parse_json(line) do
       packet when is_map(packet) ->
-        {[Packet.new(packet)], {nil, [], false}}
+        {[Packet.new(packet)], {nil, []}}
 
       _ ->
-        {[], {nil, [], false}}
+        {[], {nil, []}}
     end
   end
 
