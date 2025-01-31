@@ -39,13 +39,43 @@ defmodule ExShark do
   """
   def capture(opts \\ []) do
     opts = normalize_capture_options(opts)
+
+    if String.ends_with?(opts.interface, ".pcap") do
+      simulate_capture_with_pcap(opts)
+    else
+      live_capture(opts)
+    end
+  end
+
+  # def capture(opts \\ []) do
+  #   opts = normalize_capture_options(opts)
+  #   port = start_capture(opts)
+
+  #   maybe_generate_traffic(opts.interface)
+
+  #   create_packet_stream(port, opts)
+  #   |> Stream.filter(&valid_packet?/1)
+  #   |> add_packet_limit(opts.packet_count)
+  # end
+
+  defp live_capture(opts) do
     port = start_capture(opts)
 
     maybe_generate_traffic(opts.interface)
 
-    create_packet_stream(port, opts)
+    create_packet_stream(port)
     |> Stream.filter(&valid_packet?/1)
     |> add_packet_limit(opts.packet_count)
+  end
+
+  defp simulate_capture_with_pcap(opts) do
+    packets = read_file(opts.interface, opts)
+
+    if opts.packet_count do
+      Enum.take(packets, opts.packet_count)
+    else
+      packets
+    end
   end
 
   # Private Functions
@@ -80,7 +110,7 @@ defmodule ExShark do
       build_fields_args(opts.fields)
   end
 
-  defp create_packet_stream(port, opts) do
+  defp create_packet_stream(port) do
     Stream.resource(
       fn -> {port, [], false} end,
       &handle_packet_stream/1,
@@ -88,16 +118,16 @@ defmodule ExShark do
     )
   end
 
-  defp handle_packet_stream({port, [], false} = state) do
+  defp handle_packet_stream({port, [], false}) do
     receive do
       {^port, {:data, {:eol, line}}} ->
-        handle_packet_data(line, state)
+        handle_packet_data(line)
 
       {^port, {:exit_status, _}} ->
         {:halt, {port, [], true}}
 
       _other ->
-        {[], state}
+        {[], {port, [], false}}
     after
       @default_timeout -> {:halt, {port, [], true}}
     end
@@ -107,13 +137,13 @@ defmodule ExShark do
     {:halt, port}
   end
 
-  defp handle_packet_data(line, {port, [], false} = state) do
+  defp handle_packet_data(line) do
     case parse_json(line) do
       packet when is_map(packet) ->
-        {[Packet.new(packet)], state}
+        {[Packet.new(packet)], {nil, [], false}}
 
       _ ->
-        {[], state}
+        {[], {nil, [], false}}
     end
   end
 
