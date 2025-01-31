@@ -38,109 +38,100 @@ defmodule ExShark do
   Starts a live capture on the specified interface with given options.
   """
   def capture(opts \\ []) do
-    interface = Keyword.get(opts, :interface, "any")
-    filter = Keyword.get(opts, :filter, "")
-    duration = Keyword.get(opts, :duration)
-    packet_count = Keyword.get(opts, :packet_count)
-    fields = Keyword.get(opts, :fields, [])
-    timeout = Keyword.get(opts, :timeout, @default_timeout)
+    opts = normalize_capture_options(opts)
+    port = start_capture(opts)
 
-    args =
-      ["-i", interface, "-T", "ek", "-l", "-n"] ++
-        build_filter_args(filter) ++
-        build_duration_args(duration) ++
-        build_count_args(packet_count) ++
-        build_fields_args(fields)
+    maybe_generate_traffic(opts.interface)
 
-    port =
-      Port.open({:spawn_executable, find_tshark()}, [
-        :binary,
-        :exit_status,
-        {:line, 16_384},
-        args: args
-      ])
-
-    # Start traffic generation before capture starts
-    if should_generate_traffic?(interface) do
-      generate_loopback_traffic()
-      # Give some time for traffic to start flowing
-      Process.sleep(200)
-    end
-
-    stream =
-      Stream.resource(
-        # Added closed flag
-        fn -> {port, [], false} end,
-        fn
-          {port, [], false} ->
-            receive do
-              {^port, {:data, {:eol, line}}} ->
-                case parse_json(line) do
-                  packet when is_map(packet) ->
-                    {[Packet.new(packet)], {port, [], false}}
-
-                  _ ->
-                    {[], {port, [], false}}
-                end
-
-              {^port, {:exit_status, _}} ->
-                {:halt, {port, [], true}}
-
-              other ->
-                IO.inspect(other, label: "Unexpected message")
-                {[], {port, [], false}}
-            after
-              timeout -> {:halt, {port, [], true}}
-            end
-
-          {port, [], true} ->
-            {:halt, port}
-        end,
-        fn
-          port when is_port(port) ->
-            try do
-              if should_generate_traffic?(interface) do
-                # Give time for final packets to arrive
-                Process.sleep(100)
-              end
-
-              Port.close(port)
-            catch
-              :error, :badarg -> :ok
-            end
-
-          _ ->
-            :ok
-        end
-      )
-
-    filtered_stream =
-      stream
-      |> Stream.filter(&valid_packet?/1)
-      |> add_packet_limit(packet_count)
-
-    # For loopback interfaces, ensure we have traffic before returning
-    if should_generate_traffic?(interface) do
-      Enum.reduce_while(filtered_stream, [], fn packet, acc ->
-        if length(acc) < (packet_count || 1) do
-          {:cont, [packet | acc]}
-        else
-          {:halt, acc}
-        end
-      end)
-      |> case do
-        [] -> generate_loopback_traffic()
-        packets -> packets
-      end
-    end
-
-    filtered_stream
+    create_packet_stream(port, opts)
+    |> Stream.filter(&valid_packet?/1)
+    |> add_packet_limit(opts.packet_count)
   end
 
-  defp add_packet_limit(stream, nil), do: stream
+  # Private Functions
 
-  defp add_packet_limit(stream, count) when is_integer(count) and count > 0 do
-    stream |> Stream.take(count)
+  defp normalize_capture_options(opts) do
+    %{
+      interface: Keyword.get(opts, :interface, "any"),
+      filter: Keyword.get(opts, :filter, ""),
+      duration: Keyword.get(opts, :duration),
+      packet_count: Keyword.get(opts, :packet_count),
+      fields: Keyword.get(opts, :fields, []),
+      timeout: Keyword.get(opts, :timeout, @default_timeout)
+    }
+  end
+
+  defp start_capture(opts) do
+    args = build_capture_args(opts)
+
+    Port.open({:spawn_executable, find_tshark()}, [
+      :binary,
+      :exit_status,
+      {:line, 16_384},
+      args: args
+    ])
+  end
+
+  defp build_capture_args(opts) do
+    ["-i", opts.interface, "-T", "ek", "-l", "-n"] ++
+      build_filter_args(opts.filter) ++
+      build_duration_args(opts.duration) ++
+      build_count_args(opts.packet_count) ++
+      build_fields_args(opts.fields)
+  end
+
+  defp create_packet_stream(port, opts) do
+    Stream.resource(
+      fn -> {port, [], false} end,
+      &handle_packet_stream/1,
+      &cleanup_capture/1
+    )
+  end
+
+  defp handle_packet_stream({port, [], false} = state) do
+    receive do
+      {^port, {:data, {:eol, line}}} ->
+        handle_packet_data(line, state)
+
+      {^port, {:exit_status, _}} ->
+        {:halt, {port, [], true}}
+
+      _other ->
+        {[], state}
+    after
+      @default_timeout -> {:halt, {port, [], true}}
+    end
+  end
+
+  defp handle_packet_stream({port, [], true}) do
+    {:halt, port}
+  end
+
+  defp handle_packet_data(line, {port, [], false} = state) do
+    case parse_json(line) do
+      packet when is_map(packet) ->
+        {[Packet.new(packet)], state}
+
+      _ ->
+        {[], state}
+    end
+  end
+
+  defp cleanup_capture(port) when is_port(port) do
+    try do
+      Port.close(port)
+    catch
+      :error, :badarg -> :ok
+    end
+  end
+
+  defp cleanup_capture(_), do: :ok
+
+  defp maybe_generate_traffic(interface) do
+    if should_generate_traffic?(interface) do
+      generate_loopback_traffic()
+      Process.sleep(200)
+    end
   end
 
   defp should_generate_traffic?(interface) do
@@ -156,25 +147,36 @@ defmodule ExShark do
   end
 
   defp generate_loopback_traffic do
+    spawn_ping_command(get_ping_args())
+  end
+
+  defp spawn_ping_command(args) do
+    Task.start(fn ->
+      System.cmd(get_ping_command(), args, stderr_to_stdout: true)
+    end)
+  end
+
+  defp get_ping_command do
+    case :os.type() do
+      {:win32, _} -> "ping"
+      _ -> "/bin/ping"
+    end
+  end
+
+  defp get_ping_args do
     ping_count = "3"
 
-    ping_args =
-      case :os.type() do
-        {:win32, _} -> ["-n", ping_count, "127.0.0.1"]
-        {:unix, :darwin} -> ["-c", ping_count, "127.0.0.1"]
-        _ -> ["-c", ping_count, "-i", "0.1", "127.0.0.1"]
-      end
+    case :os.type() do
+      {:win32, _} -> ["-n", ping_count, "127.0.0.1"]
+      {:unix, :darwin} -> ["-c", ping_count, "127.0.0.1"]
+      _ -> ["-c", ping_count, "-i", "0.1", "127.0.0.1"]
+    end
+  end
 
-    Task.start(fn ->
-      System.cmd(
-        case :os.type() do
-          {:win32, _} -> "ping"
-          _ -> "/bin/ping"
-        end,
-        ping_args,
-        stderr_to_stdout: true
-      )
-    end)
+  defp add_packet_limit(stream, nil), do: stream
+
+  defp add_packet_limit(stream, count) when is_integer(count) and count > 0 do
+    Stream.take(stream, count)
   end
 
   defp find_tshark do
