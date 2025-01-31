@@ -61,39 +61,75 @@ defmodule ExShark do
         build_count_args(packet_count) ++
         build_fields_args(fields)
 
-    port = Port.open({:spawn_executable, find_tshark()}, [:binary, :exit_status, args: args])
+    port =
+      Port.open({:spawn_executable, find_tshark()}, [
+        :binary,
+        :exit_status,
+        {:line, 16384},
+        args: args
+      ])
+
+    # Generate some traffic on loopback if needed
+    if interface in ["lo", "lo0", "\\Device\\NPF_Loopback", "Loopback: lo"] do
+      generate_loopback_traffic()
+    end
 
     Stream.resource(
-      fn -> port end,
-      fn port ->
-        receive do
-          {^port, {:data, data}} ->
-            case parse_json(data) do
-              packet when is_map(packet) ->
-                {[Packet.new(packet)], port}
+      fn -> {port, []} end,
+      fn
+        {port, []} ->
+          receive do
+            {^port, {:data, {:eol, line}}} ->
+              case parse_json(line) do
+                packet when is_map(packet) ->
+                  {[Packet.new(packet)], {port, []}}
 
-              _ ->
-                {[], port}
-            end
+                _ ->
+                  {[], {port, []}}
+              end
 
-          {^port, {:exit_status, _}} ->
-            {:halt, port}
+            {^port, {:exit_status, _}} ->
+              {:halt, port}
+          after
+            5000 -> {:halt, port}
+          end
 
-          _ ->
-            {[], port}
-        after
-          5000 -> {:halt, port}
-        end
+        {port, buffer} ->
+          case parse_json(Enum.join(buffer, "")) do
+            packet when is_map(packet) ->
+              {[Packet.new(packet)], {port, []}}
+
+            _ ->
+              {[], {port, []}}
+          end
       end,
-      fn port ->
-        try do
-          Port.close(port)
-        catch
-          :error, :badarg -> :ok
-        end
+      fn
+        port when is_port(port) ->
+          try do
+            Port.close(port)
+          catch
+            :error, :badarg -> :ok
+          end
+
+        _ ->
+          :ok
       end
     )
     |> Stream.filter(&valid_packet?/1)
+    |> Stream.take(packet_count || :infinity)
+  end
+
+  defp generate_loopback_traffic do
+    Task.start(fn ->
+      System.cmd("ping", [
+        case :os.type() do
+          {:win32, _} -> "-n"
+          _ -> "-c"
+        end,
+        "1",
+        "127.0.0.1"
+      ])
+    end)
   end
 
   # Private Functions
