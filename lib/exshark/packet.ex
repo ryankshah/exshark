@@ -83,6 +83,7 @@ defmodule ExShark.Packet do
   Checks if the packet contains a specific protocol.
   """
   def has_protocol?(packet, :eth), do: has_ethernet?(packet)
+
   def has_protocol?(packet, protocol) do
     protocol = normalize_protocol_name(protocol)
     protocols_list = get_protocols_list(packet)
@@ -222,15 +223,15 @@ defmodule ExShark.Packet do
   end
 
   defp get_frame_number(frame_layer) do
-    get_in(frame_layer, ["frame.number"]) || 
-    get_in(frame_layer, ["frame_frame_number"]) || 
-    ""
+    get_in(frame_layer, ["frame.number"]) ||
+      get_in(frame_layer, ["frame_frame_number"]) ||
+      ""
   end
 
   defp get_frame_time(frame_layer) do
-    get_in(frame_layer, ["frame.time"]) || 
-    get_in(frame_layer, ["frame_frame_time"]) || 
-    ""
+    get_in(frame_layer, ["frame.time"]) ||
+      get_in(frame_layer, ["frame_frame_time"]) ||
+      ""
   end
 
   defp get_summary_fields(%{"layers" => layers}) when is_map(layers) do
@@ -250,9 +251,9 @@ defmodule ExShark.Packet do
   defp determine_highest_layer(layers, protocols_str) do
     available_protocols =
       if protocols_str != "" do
-        protocols_str 
+        protocols_str
         |> String.downcase()
-        |> String.split(":") 
+        |> String.split(":")
         |> Enum.map(&String.trim/1)
       else
         Map.keys(layers) |> Enum.map(&to_string/1)
