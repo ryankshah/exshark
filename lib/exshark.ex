@@ -118,11 +118,11 @@ defmodule ExShark do
   end
 
   defp cleanup_capture(port) when is_port(port) do
-    try do
-      Port.close(port)
-    catch
-      :error, :badarg -> :ok
-    end
+    # try do
+    Port.close(port)
+    # catch
+    #   :error, :badarg -> :ok
+    # end
   end
 
   defp cleanup_capture(_), do: :ok
