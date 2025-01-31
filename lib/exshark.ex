@@ -6,6 +6,8 @@ defmodule ExShark do
 
   alias ExShark.Packet
 
+  @default_timeout 5000
+
   @doc """
   Reads packets from a pcap file and returns them as a list.
   """
@@ -41,6 +43,7 @@ defmodule ExShark do
     duration = Keyword.get(opts, :duration)
     packet_count = Keyword.get(opts, :packet_count)
     fields = Keyword.get(opts, :fields, [])
+    timeout = Keyword.get(opts, :timeout, @default_timeout)
 
     args =
       ["-i", interface, "-T", "ek", "-l", "-n"] ++
@@ -57,51 +60,81 @@ defmodule ExShark do
         args: args
       ])
 
-    # Generate some traffic if using loopback
+    # Start traffic generation before capture starts
     if should_generate_traffic?(interface) do
       generate_loopback_traffic()
       # Give some time for traffic to start flowing
       Process.sleep(200)
     end
 
-    Stream.resource(
-      # Added closed flag
-      fn -> {port, [], false} end,
-      fn
-        {port, [], false} ->
-          receive do
-            {^port, {:data, {:eol, line}}} ->
-              case parse_json(line) do
-                packet when is_map(packet) ->
-                  {[Packet.new(packet)], {port, [], false}}
+    stream =
+      Stream.resource(
+        # Added closed flag
+        fn -> {port, [], false} end,
+        fn
+          {port, [], false} ->
+            receive do
+              {^port, {:data, {:eol, line}}} ->
+                case parse_json(line) do
+                  packet when is_map(packet) ->
+                    {[Packet.new(packet)], {port, [], false}}
 
-                _ ->
-                  {[], {port, [], false}}
+                  _ ->
+                    {[], {port, [], false}}
+                end
+
+              {^port, {:exit_status, _}} ->
+                {:halt, {port, [], true}}
+
+              other ->
+                IO.inspect(other, label: "Unexpected message")
+                {[], {port, [], false}}
+            after
+              timeout -> {:halt, {port, [], true}}
+            end
+
+          {port, [], true} ->
+            {:halt, port}
+        end,
+        fn
+          port when is_port(port) ->
+            try do
+              if should_generate_traffic?(interface) do
+                # Give time for final packets to arrive
+                Process.sleep(100)
               end
 
-            {^port, {:exit_status, _}} ->
-              {:halt, {port, [], true}}
-          after
-            5000 -> {:halt, {port, [], true}}
-          end
+              Port.close(port)
+            catch
+              :error, :badarg -> :ok
+            end
 
-        {port, [], true} ->
-          {:halt, port}
-      end,
-      fn
-        port when is_port(port) ->
-          try do
-            Port.close(port)
-          catch
-            :error, :badarg -> :ok
-          end
+          _ ->
+            :ok
+        end
+      )
 
-        _ ->
-          :ok
+    filtered_stream =
+      stream
+      |> Stream.filter(&valid_packet?/1)
+      |> add_packet_limit(packet_count)
+
+    # For loopback interfaces, ensure we have traffic before returning
+    if should_generate_traffic?(interface) do
+      Enum.reduce_while(filtered_stream, [], fn packet, acc ->
+        if length(acc) < (packet_count || 1) do
+          {:cont, [packet | acc]}
+        else
+          {:halt, acc}
+        end
+      end)
+      |> case do
+        [] -> generate_loopback_traffic()
+        packets -> packets
       end
-    )
-    |> Stream.filter(&valid_packet?/1)
-    |> add_packet_limit(packet_count)
+    end
+
+    filtered_stream
   end
 
   defp add_packet_limit(stream, nil), do: stream
