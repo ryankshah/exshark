@@ -65,71 +65,96 @@ defmodule ExShark do
       Port.open({:spawn_executable, find_tshark()}, [
         :binary,
         :exit_status,
-        # Used underscore for better readability
         {:line, 16_384},
         args: args
       ])
 
     # Generate some traffic on loopback if needed
-    if interface in ["lo", "lo0", "\\Device\\NPF_Loopback", "Loopback: lo"] do
+    if should_generate_traffic?(interface) do
       generate_loopback_traffic()
+      # Give a small delay for the traffic to be generated
+      Process.sleep(100)
     end
 
-    Stream.resource(
-      fn -> {port, []} end,
-      fn
-        {port, []} ->
-          receive do
-            {^port, {:data, {:eol, line}}} ->
-              case parse_json(line) do
-                packet when is_map(packet) ->
-                  {[Packet.new(packet)], {port, []}}
+    stream =
+      Stream.resource(
+        fn -> {port, []} end,
+        fn
+          {port, []} ->
+            receive do
+              {^port, {:data, {:eol, line}}} ->
+                case parse_json(line) do
+                  packet when is_map(packet) ->
+                    {[Packet.new(packet)], {port, []}}
 
-                _ ->
-                  {[], {port, []}}
-              end
+                  _ ->
+                    {[], {port, []}}
+                end
 
-            {^port, {:exit_status, _}} ->
-              {:halt, port}
-          after
-            5000 -> {:halt, port}
-          end
+              {^port, {:exit_status, _}} ->
+                {:halt, port}
+            after
+              5000 -> {:halt, port}
+            end
 
-        {port, buffer} ->
-          case parse_json(Enum.join(buffer, "")) do
-            packet when is_map(packet) ->
-              {[Packet.new(packet)], {port, []}}
+          {port, buffer} ->
+            case parse_json(Enum.join(buffer, "")) do
+              packet when is_map(packet) ->
+                {[Packet.new(packet)], {port, []}}
 
-            _ ->
-              {[], {port, []}}
-          end
-      end,
-      fn
-        port when is_port(port) ->
-          try do
-            Port.close(port)
-          catch
-            :error, :badarg -> :ok
-          end
+              _ ->
+                {[], {port, []}}
+            end
+        end,
+        fn
+          port when is_port(port) ->
+            try do
+              Port.close(port)
+            catch
+              :error, :badarg -> :ok
+            end
 
-        _ ->
-          :ok
-      end
-    )
-    |> Stream.filter(&valid_packet?/1)
-    |> Stream.take(packet_count || :infinity)
+          _ ->
+            :ok
+        end
+      )
+      |> Stream.filter(&valid_packet?/1)
+
+    case packet_count do
+      nil -> stream
+      count when is_integer(count) -> Stream.take(stream, count)
+    end
+  end
+
+  defp should_generate_traffic?(interface) do
+    loopback_interfaces = [
+      "lo",
+      "lo0",
+      "\\Device\\NPF_Loopback",
+      "Loopback: lo",
+      "Loopback"
+    ]
+
+    Enum.any?(loopback_interfaces, &String.contains?(interface, &1))
   end
 
   defp generate_loopback_traffic do
     Task.start(fn ->
-      System.cmd("ping", [
+      ping_args =
         case :os.type() do
-          {:win32, _} -> "-n"
-          _ -> "-c"
+          {:win32, _} -> ["-n", "2", "127.0.0.1"]
+          {:unix, :darwin} -> ["-c", "2", "127.0.0.1"]
+          _ -> ["-c", "2", "-i", "0.1", "127.0.0.1"]
+        end
+
+      System.cmd(
+        case :os.type() do
+          {:win32, _} -> "ping"
+          _ -> "/bin/ping"
         end,
-        "1",
-        "127.0.0.1"
-      ])
+        ping_args,
+        stderr_to_stdout: true
+      )
     end)
   end
 

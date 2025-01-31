@@ -19,19 +19,15 @@ defmodule ExShark.TestHelper do
     @test_pcap
   end
 
-  def get_test_packet(index \\ 0) do
-    @test_pcap
-    |> ExShark.read_file()
-    |> Enum.at(index)
-  end
-
-  def get_filtered_packets(filter) do
-    @test_pcap
-    |> ExShark.read_file(filter: filter)
-  end
-
   def with_test_interface(fun) do
     interface = test_interface()
+
+    # Generate some initial traffic to ensure interface is ready
+    generate_test_traffic()
+
+    # Small delay to ensure interface is ready
+    Process.sleep(200)
+
     fun.(interface)
   end
 
@@ -40,63 +36,69 @@ defmodule ExShark.TestHelper do
       {:unix, :linux} -> "lo"
       {:unix, :darwin} -> "lo0"
       {:win32, _} -> "\\Device\\NPF_Loopback"
-      _ -> "any"
+      _ -> "lo"
     end
   end
 
+  defp generate_test_traffic do
+    ping_args =
+      case :os.type() do
+        {:win32, _} -> ["-n", "2", "127.0.0.1"]
+        {:unix, :darwin} -> ["-c", "2", "127.0.0.1"]
+        _ -> ["-c", "2", "-i", "0.1", "127.0.0.1"]
+      end
+
+    System.cmd(
+      case :os.type() do
+        {:win32, _} -> "ping"
+        _ -> "/bin/ping"
+      end,
+      ping_args,
+      stderr_to_stdout: true
+    )
+  end
+
   defp generate_test_pcap do
-    # Generate some reliable test traffic
     temp_file = Path.join(System.tmp_dir!(), "temp.pcap")
 
     capture_args = [
-      # Write to temp file
       "-w",
       temp_file,
-      # Use PCAP format
       "-F",
       "pcap",
-      # Use test interface
       "-i",
       test_interface(),
-      # Capture ICMP and TCP
       "-f",
       "icmp or tcp",
-      # Capture 10 packets
       "-c",
       "10"
     ]
 
-    # Start capture
-    tshark_port =
+    port =
       Port.open({:spawn_executable, tshark_path()}, [
         :binary,
         :exit_status,
         args: capture_args
       ])
 
-    # Generate some traffic
-    ping_target =
-      case :os.type() do
-        {:win32, _} -> "127.0.0.1"
-        _ -> "localhost"
-      end
+    # Generate traffic while capturing
+    generate_test_traffic()
 
-    System.cmd(ping_command(), ping_args(ping_target))
-
-    # Wait for capture to finish
     receive do
-      {^tshark_port, {:exit_status, status}} when status in [0, 1] ->
-        # Copy temp file to test location if it exists and has content
+      {^port, {:exit_status, status}} when status in [0, 1] ->
         if File.exists?(temp_file) and File.stat!(temp_file).size > 0 do
           File.cp!(temp_file, @test_pcap)
         else
           raise "Failed to create test PCAP: Empty or missing capture file"
         end
 
-      {^tshark_port, {:exit_status, status}} ->
+        File.rm(temp_file)
+
+      {^port, {:exit_status, status}} ->
         raise "Failed to create test PCAP: tshark exited with status #{status}"
     after
       10_000 ->
+        Port.close(port)
         raise "Failed to create test PCAP: timeout"
     end
   end
@@ -104,20 +106,5 @@ defmodule ExShark.TestHelper do
   defp tshark_path do
     System.find_executable("tshark") ||
       raise "tshark executable not found in PATH"
-  end
-
-  defp ping_command do
-    case :os.type() do
-      {:win32, _} -> "ping"
-      _ -> "/bin/ping"
-    end
-  end
-
-  defp ping_args(target) do
-    case :os.type() do
-      {:win32, _} -> ["-n", "4", target]
-      {:unix, :darwin} -> ["-c", "4", target]
-      _ -> ["-c", "4", "-i", "0.2", target]
-    end
   end
 end
