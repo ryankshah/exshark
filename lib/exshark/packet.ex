@@ -128,16 +128,14 @@ defmodule ExShark.Packet do
   def get_layer(packet, protocol) do
     protocol = normalize_protocol_name(protocol)
 
-    cond do
-      protocol == :eth && Map.has_key?(packet.layers, :sll) ->
-        sll_layer = Map.get(packet.layers, :sll)
-        Layer.new(:eth, convert_sll_to_eth(sll_layer))
-
-      true ->
-        case Map.get(packet.layers, protocol) do
-          nil -> nil
-          layer_data -> Layer.new(protocol, normalize_layer_fields(layer_data))
-        end
+    if protocol == :eth && Map.has_key?(packet.layers, :sll) do
+      sll_layer = Map.get(packet.layers, :sll)
+      Layer.new(:eth, convert_sll_to_eth(sll_layer))
+    else
+      case Map.get(packet.layers, protocol) do
+        nil -> nil
+        layer_data -> Layer.new(protocol, normalize_layer_fields(layer_data))
+      end
     end
   end
 

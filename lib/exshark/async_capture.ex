@@ -76,22 +76,20 @@ defmodule ExShark.AsyncCapture do
   end
 
   defp process_packets(file_path, callback, opts) do
-    try do
-      file_path
-      |> ExShark.read_file(opts)
-      |> Enum.each(fn packet ->
-        case callback.(packet) do
-          {:ok, _} -> :ok
-          :ok -> :ok
-          {:error, reason} -> raise "Callback failed: #{inspect(reason)}"
-          other -> raise "Unexpected callback return: #{inspect(other)}"
-        end
-      end)
+    file_path
+    |> ExShark.read_file(opts)
+    |> Enum.each(fn packet ->
+      case callback.(packet) do
+        {:ok, _} -> :ok
+        :ok -> :ok
+        {:error, reason} -> raise "Callback failed: #{inspect(reason)}"
+        other -> raise "Unexpected callback return: #{inspect(other)}"
+      end
+    end)
 
-      :ok
-    rescue
-      e -> {:error, Exception.message(e)}
-    end
+    :ok
+  rescue
+    e -> {:error, Exception.message(e)}
   end
 
   @doc """
