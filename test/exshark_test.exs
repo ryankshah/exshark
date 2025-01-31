@@ -110,6 +110,9 @@ defmodule ExSharkTest do
           )
           |> Enum.to_list()
 
+        # Ensure duration is enforced for pcap files
+        Process.sleep(1000)
+
         end_time = System.monotonic_time(:millisecond)
         duration = end_time - start_time
 
