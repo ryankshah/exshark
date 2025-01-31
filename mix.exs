@@ -25,7 +25,7 @@ defmodule ExShark.MixProject do
       dialyzer: [
         plt_add_apps: [:mix],
         ignore_warnings: ".dialyzer_ignore.exs"
-      ],
+      ]
     ]
   end
 
