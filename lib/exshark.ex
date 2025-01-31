@@ -65,7 +65,8 @@ defmodule ExShark do
       Port.open({:spawn_executable, find_tshark()}, [
         :binary,
         :exit_status,
-        {:line, 16384},
+        # Used underscore for better readability
+        {:line, 16_384},
         args: args
       ])
 
