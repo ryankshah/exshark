@@ -1,8 +1,4 @@
 defmodule ExSharkTest do
-  @moduledoc """
-  Tests for the main ExShark module functionality.
-  """
-
   use ExUnit.Case, async: true
   doctest ExShark
   alias ExShark.TestHelper
@@ -20,8 +16,8 @@ defmodule ExSharkTest do
 
       # Check packet structure
       first_packet = hd(packets)
-      assert first_packet.highest_layer
-      assert first_packet.length
+      assert first_packet.highest_layer in ["IP", "TCP", "UDP", "ICMP"]
+      assert first_packet.length >= 0
       assert first_packet.frame_info
     end
 
@@ -30,9 +26,10 @@ defmodule ExSharkTest do
       assert is_list(packets)
       assert length(packets) > 0
 
-      assert Enum.all?(packets, fn p ->
-               p.highest_layer in ["IP", "TCP", "UDP", "ICMP", "DNS", "HTTP"]
-             end)
+      for packet <- packets do
+        assert packet.highest_layer in ["IP", "TCP", "UDP", "ICMP", "DNS", "HTTP"],
+          "Got unexpected protocol: #{inspect(packet.highest_layer)}"
+      end
     end
 
     test "handles invalid file path" do
@@ -51,15 +48,74 @@ defmodule ExSharkTest do
   describe "capture/1" do
     @tag :capture
     test "captures packets from interface" do
-      packets =
-        ExShark.capture(interface: "any", packet_count: 1)
-        |> Enum.take(1)
+      TestHelper.with_test_interface(fn interface ->
+        packets =
+          ExShark.capture(
+            interface: interface,
+            packet_count: 1,
+            filter: "ip"
+          )
+          |> Enum.take(1)
 
-      assert length(packets) == 1
-      packet = hd(packets)
-      assert packet.highest_layer
-      assert packet.length
-      assert packet.frame_info
+        assert length(packets) == 1
+        packet = hd(packets)
+        assert packet.highest_layer in ["IP", "TCP", "UDP", "ICMP"]
+        assert packet.length >= 0
+        assert packet.frame_info
+      end)
+    end
+
+    @tag :capture
+    test "applies filter during capture" do
+      TestHelper.with_test_interface(fn interface ->
+        packets =
+          ExShark.capture(
+            interface: interface,
+            filter: "icmp",
+            packet_count: 1
+          )
+          |> Enum.take(1)
+
+        assert length(packets) == 1
+        packet = hd(packets)
+        assert packet.highest_layer == "ICMP"
+      end)
+    end
+
+    @tag :capture
+    test "respects packet count" do
+      TestHelper.with_test_interface(fn interface ->
+        count = 2
+        packets =
+          ExShark.capture(
+            interface: interface,
+            packet_count: count
+          )
+          |> Enum.to_list()
+
+        assert length(packets) == count
+      end)
+    end
+
+    @tag :capture
+    test "handles duration limit" do
+      TestHelper.with_test_interface(fn interface ->
+        start_time = System.monotonic_time(:millisecond)
+
+        packets =
+          ExShark.capture(
+            interface: interface,
+            duration: 1
+          )
+          |> Enum.to_list()
+
+        end_time = System.monotonic_time(:millisecond)
+        duration = end_time - start_time
+
+        assert duration >= 1000
+        assert duration <= 2000
+        assert length(packets) >= 0
+      end)
     end
   end
 end

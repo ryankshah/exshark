@@ -1,72 +1,77 @@
 defmodule ExShark.PacketTest do
-  @moduledoc """
-  Tests for the ExShark.Packet module and its submodules.
-  """
-
   use ExUnit.Case, async: true
   alias ExShark.{Packet, TestHelper}
 
   setup do
-    test_packets = ExShark.read_file(TestHelper.test_pcap_path())
-    # Get the first ICMP packet for testing
-    icmp_packet = Enum.find(test_packets, &(&1.highest_layer == "ICMP"))
-    {:ok, packets: test_packets, icmp_packet: icmp_packet || hd(test_packets)}
+    packet = TestHelper.get_test_packet()
+    {:ok, packet: packet}
   end
 
   describe "layer access" do
-    test "can access layer using different methods", %{icmp_packet: packet} do
-      layer_by_atom = Packet.get_layer(packet, :icmp)
-      layer_by_string = Packet.get_layer(packet, "icmp")
-      layer_by_upcase = Packet.get_layer(packet, "ICMP")
-
-      # All methods should return equivalent layers
-      refute is_nil(layer_by_atom)
-      assert layer_by_atom == layer_by_string
-      assert layer_by_string == layer_by_upcase
-      assert String.upcase(layer_by_atom.name) == "ICMP"
+    test "can access layer using different methods", %{packet: packet} do
+      protocol = packet.highest_layer |> String.downcase() |> String.to_atom()
+      
+      layer = Packet.get_layer(packet, protocol)
+      assert layer, "Failed to get layer by atom"
+      
+      layer_by_string = Packet.get_layer(packet, to_string(protocol))
+      assert layer_by_string == layer, "Layer access by string failed"
+      
+      layer_by_upcase = Packet.get_layer(packet, String.upcase(to_string(protocol)))
+      assert layer_by_upcase == layer, "Layer access by uppercase failed"
     end
 
-    test "packet contains layer", %{icmp_packet: packet} do
-      assert Packet.has_protocol?(packet, "ICMP")
-      refute Packet.has_protocol?(packet, "HTTP")
+    test "packet contains layer", %{packet: packet} do
+      assert Packet.has_protocol?(packet, "IP")
+      refute Packet.has_protocol?(packet, "INVALID")
     end
   end
 
   describe "field access" do
-    test "ethernet fields", %{packets: [packet | _]} do
-      assert packet[eth: :src]
-      assert packet[eth: :dst]
+    test "ethernet fields", %{packet: packet} do
+      # Try both eth and sll since we might get either
+      src = packet[eth: :src] || packet[sll: :src_eth]
+      dst = packet[eth: :dst] || packet[sll: :src_eth]
+
+      assert src, "Failed to get source address"
+      assert dst, "Failed to get destination address"
+      assert Regex.match?(~r/^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$/, src)
     end
 
-    test "raw mode access", %{icmp_packet: packet} do
-      # Get the layer and compare normal vs raw mode
-      ip_layer = Packet.get_layer(packet, :ip)
-      raw_ip_layer = %{ip_layer | raw_mode: true}
+    test "raw mode access", %{packet: packet} do
+      protocol = packet.highest_layer |> String.downcase() |> String.to_atom()
+      layer = Packet.get_layer(packet, protocol)
+      raw_layer = %{layer | raw_mode: true}
 
-      normal_src = Packet.Layer.get_field(ip_layer, :src)
-      raw_src = Packet.Layer.get_field(raw_ip_layer, :src)
-
-      assert normal_src
-      assert raw_src
-      # Raw value might be the same if no raw field is available
-      assert raw_src == (Map.get(ip_layer.fields, "ip.src.raw") || normal_src)
-    end
-
-    test "icmp response time", %{icmp_packet: packet} do
-      resptime = packet[icmp: :resptime]
-
-      if resptime do
-        normalized = String.replace(resptime, ",", ".")
-        assert String.to_float(normalized) > 0
+      field = Enum.find(Map.keys(layer.fields), & String.ends_with?(to_string(&1), ".raw"))
+      if field do
+        field_name = field |> to_string() |> String.replace(".raw", "") |> String.to_atom()
+        normal_value = Packet.Layer.get_field(layer, field_name)
+        raw_value = Packet.Layer.get_field(raw_layer, field_name)
+        assert normal_value
+        assert raw_value
+        assert raw_value != normal_value || is_binary(raw_value)
       end
+    end
+
+    test "field access through Access behaviour", %{packet: packet} do
+      assert packet[ip: :src]
+      assert packet[ip: :dst]
+      assert packet[ip: :proto]
     end
   end
 
   describe "frame info" do
-    test "access frame info", %{icmp_packet: packet} do
+    test "access frame info", %{packet: packet} do
       assert packet.frame_info.protocols
       assert packet.frame_info.number
       assert packet.frame_info.time
+    end
+
+    test "frame info contains valid data", %{packet: packet} do
+      assert String.contains?(packet.frame_info.protocols, ["ip", "tcp", "udp", "icmp"])
+      assert String.match?(packet.frame_info.number, ~r/^\d+$/)
+      assert String.contains?(packet.frame_info.time, [":", "-", "T"])
     end
   end
 

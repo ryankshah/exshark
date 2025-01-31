@@ -1,8 +1,4 @@
 defmodule ExShark.AsyncCaptureTest do
-  @moduledoc """
-  Tests for the ExShark.AsyncCapture module.
-  """
-
   use ExUnit.Case, async: true
   alias ExShark.{AsyncCapture, TestHelper}
 
@@ -60,8 +56,6 @@ defmodule ExShark.AsyncCaptureTest do
       end
 
       {:ok, results} = AsyncCapture.apply_on_packets_async(pcap, callback)
-
-      # Fix result extraction
       processed_results = for {:ok, {:ok, layer}} <- results, do: layer
 
       assert length(processed_results) > 0
@@ -106,8 +100,13 @@ defmodule ExShark.AsyncCaptureTest do
   end
 
   describe "live capture" do
+    setup do
+      test_interface = TestHelper.test_interface()
+      {:ok, interface: test_interface}
+    end
+
     @tag :capture
-    test "starts and stops live capture" do
+    test "starts and stops live capture", %{interface: interface} do
       test_pid = self()
       packet_count = 1
 
@@ -119,7 +118,7 @@ defmodule ExShark.AsyncCaptureTest do
       task =
         Task.async(fn ->
           AsyncCapture.capture_live(callback,
-            interface: "any",
+            interface: interface,
             packet_count: packet_count
           )
         end)
@@ -139,8 +138,9 @@ defmodule ExShark.AsyncCaptureTest do
     end
 
     @tag :capture
-    test "handles callback errors in live capture" do
+    test "handles callback errors in live capture", %{interface: interface} do
       test_pid = self()
+      receive_count = 1
 
       callback = fn packet ->
         send(test_pid, {:packet_processed, packet.frame_info.number})
@@ -150,14 +150,23 @@ defmodule ExShark.AsyncCaptureTest do
       task =
         Task.async(fn ->
           AsyncCapture.capture_live(callback,
-            interface: "any",
-            packet_count: 1
+            interface: interface,
+            packet_count: receive_count
           )
         end)
 
-      # Verify we got a message despite the error
-      assert_receive {:packet_processed, _}, 5000
+      # Verify we got messages despite errors
+      packets =
+        for _ <- 1..receive_count do
+          receive do
+            {:packet_processed, _number} -> true
+          after
+            5000 -> flunk("Timeout waiting for packets")
+          end
+        end
+
       Task.shutdown(task)
+      assert length(packets) == receive_count
     end
   end
 end
