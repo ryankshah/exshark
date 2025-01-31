@@ -11,9 +11,9 @@ defmodule ExShark do
   @doc """
   Reads packets from a pcap file and returns them as a list.
   """
-  def read_file(file_path, opts \\ []) do
-    filter = Keyword.get(opts, :filter, "")
-    fields = Keyword.get(opts, :fields, [])
+  def read_file(file_path, opts \\ []) when is_list(opts) do
+    filter = opts[:filter] || ""
+    fields = opts[:fields] || []
 
     args =
       ["-r", file_path, "-T", "ek", "-n"] ++
@@ -47,16 +47,16 @@ defmodule ExShark do
     end
   end
 
-  # def capture(opts \\ []) do
-  #   opts = normalize_capture_options(opts)
-  #   port = start_capture(opts)
+  defp simulate_capture_with_pcap(opts) do
+    read_opts = [
+      filter: opts.filter,
+      fields: opts.fields
+    ]
 
-  #   maybe_generate_traffic(opts.interface)
+    packets = read_file(opts.interface, read_opts)
 
-  #   create_packet_stream(port, opts)
-  #   |> Stream.filter(&valid_packet?/1)
-  #   |> add_packet_limit(opts.packet_count)
-  # end
+    if opts.packet_count, do: Enum.take(packets, opts.packet_count), else: packets
+  end
 
   defp live_capture(opts) do
     port = start_capture(opts)
@@ -66,16 +66,6 @@ defmodule ExShark do
     create_packet_stream(port)
     |> Stream.filter(&valid_packet?/1)
     |> add_packet_limit(opts.packet_count)
-  end
-
-  defp simulate_capture_with_pcap(opts) do
-    packets = read_file(opts.interface, opts)
-
-    if opts.packet_count do
-      Enum.take(packets, opts.packet_count)
-    else
-      packets
-    end
   end
 
   # Private Functions
