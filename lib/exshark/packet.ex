@@ -19,8 +19,6 @@ defmodule ExShark.Packet do
   }
 
   @impl Access
-  def fetch(packet, key)
-
   def fetch(packet, [{protocol, field}]) do
     case get_protocol_field(packet, protocol, field) do
       nil -> :error
@@ -93,32 +91,53 @@ defmodule ExShark.Packet do
   @doc """
   Gets a protocol field value from the packet.
   """
+  def get_protocol_field(packet, :eth, field) do
+    if Map.has_key?(packet.layers, :eth) do
+      get_field_from_layer(packet.layers.eth, field)
+    else
+      case Map.get(packet.layers, :sll) do
+        nil -> nil
+        sll_data -> get_field_from_converted_sll(sll_data, field)
+      end
+    end
+  end
+
   def get_protocol_field(packet, protocol, field) do
     protocol = normalize_protocol_name(protocol)
 
-    case get_layer(packet, protocol) do
+    case Map.get(packet.layers, protocol) do
       nil -> nil
-      layer -> Layer.get_field(layer, field)
+      layer_data -> get_field_from_layer(layer_data, field)
     end
   end
+
+  defp get_field_from_layer(layer_data, field) do
+    field = to_string(field)
+    field = if String.contains?(field, "."), do: field, else: normalize_field_name(field)
+    Map.get(layer_data, field)
+  end
+
+  defp get_field_from_converted_sll(sll_data, :src), do: Map.get(sll_data, "sll_sll_src_eth")
+  defp get_field_from_converted_sll(sll_data, :dst), do: Map.get(sll_data, "sll_sll_src_eth")
+  defp get_field_from_converted_sll(sll_data, :type), do: Map.get(sll_data, "sll_sll_etype")
+  defp get_field_from_converted_sll(_sll_data, _field), do: nil
 
   @doc """
   Gets a protocol layer from the packet.
   """
-  def get_layer(packet, :eth) do
-    if Map.has_key?(packet.layers, :sll) do
-      sll_layer = Map.get(packet.layers, :sll)
-      Layer.new(:eth, convert_sll_to_eth(sll_layer))
-    else
-      layer_data = Map.get(packet.layers, :eth)
-      if layer_data, do: Layer.new(:eth, layer_data)
-    end
-  end
-
   def get_layer(packet, protocol) do
-    case Map.get(packet.layers, protocol) do
-      nil -> nil
-      layer_data -> Layer.new(protocol, layer_data)
+    protocol = normalize_protocol_name(protocol)
+
+    cond do
+      protocol == :eth && Map.has_key?(packet.layers, :sll) ->
+        sll_layer = Map.get(packet.layers, :sll)
+        Layer.new(:eth, convert_sll_to_eth(sll_layer))
+
+      true ->
+        case Map.get(packet.layers, protocol) do
+          nil -> nil
+          layer_data -> Layer.new(protocol, normalize_layer_fields(layer_data))
+        end
     end
   end
 
@@ -167,7 +186,7 @@ defmodule ExShark.Packet do
         layers when is_map(layers) and map_size(layers) > 0 ->
           Map.new(layers, fn {k, v} ->
             protocol = String.downcase(k) |> String.to_atom()
-            {protocol, normalize_layer_data(v)}
+            {protocol, normalize_layer_fields(v)}
           end)
 
         _ ->
@@ -188,11 +207,19 @@ defmodule ExShark.Packet do
     }
   end
 
-  defp normalize_layer_data(data) when is_map(data) do
-    Map.new(data, fn {k, v} -> {String.replace(k, "_", "."), v} end)
+  defp normalize_layer_fields(data) when is_map(data) do
+    Map.new(data, fn {k, v} -> {normalize_field_name(k), v} end)
   end
 
-  defp normalize_layer_data(data), do: data
+  defp normalize_layer_fields(data), do: data
+
+  defp normalize_field_name(name) do
+    name
+    |> to_string()
+    |> String.replace(~r/[_]+/, ".")
+    |> String.replace(~r/\.+/, ".")
+    |> String.trim(".")
+  end
 
   defp get_packet_length(packet_data) do
     case get_in(packet_data, ["layers", "frame", "frame.len"]) do

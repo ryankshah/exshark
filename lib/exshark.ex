@@ -28,9 +28,10 @@ defmodule ExShark do
       {output, 0} ->
         output
         |> String.split("\n", trim: true)
-        |> Enum.map(&parse_json/1)
-        |> Enum.map(&Packet.new/1)
-        |> Enum.filter(&valid_packet?/1)
+        |> Stream.map(&parse_json/1)
+        |> Stream.map(&Packet.new/1)
+        |> Stream.filter(&valid_packet?/1)
+        |> Enum.to_list()
 
       {error, _} ->
         raise "tshark error: #{error}"
@@ -60,10 +61,38 @@ defmodule ExShark do
         build_count_args(packet_count) ++
         build_fields_args(fields)
 
-    Port.open({:spawn_executable, find_tshark()}, [:binary, :exit_status, args: args])
-    |> stream_output()
-    |> Stream.map(&parse_json/1)
-    |> Stream.map(&Packet.new/1)
+    port = Port.open({:spawn_executable, find_tshark()}, [:binary, :exit_status, args: args])
+
+    Stream.resource(
+      fn -> port end,
+      fn port ->
+        receive do
+          {^port, {:data, data}} ->
+            case parse_json(data) do
+              packet when is_map(packet) ->
+                {[Packet.new(packet)], port}
+
+              _ ->
+                {[], port}
+            end
+
+          {^port, {:exit_status, _}} ->
+            {:halt, port}
+
+          _ ->
+            {[], port}
+        after
+          5000 -> {:halt, port}
+        end
+      end,
+      fn port ->
+        try do
+          Port.close(port)
+        catch
+          :error, :badarg -> :ok
+        end
+      end
+    )
     |> Stream.filter(&valid_packet?/1)
   end
 
@@ -87,19 +116,6 @@ defmodule ExShark do
 
   defp build_fields_args([]), do: []
   defp build_fields_args(fields), do: Enum.flat_map(fields, &["-e", &1])
-
-  defp stream_output(port) do
-    Stream.resource(
-      fn -> port end,
-      fn port ->
-        receive do
-          {^port, {:data, data}} -> {[data], port}
-          {^port, {:exit_status, _}} -> {:halt, port}
-        end
-      end,
-      fn port -> Port.close(port) end
-    )
-  end
 
   defp parse_json(json_string) do
     case Jason.decode(json_string) do
