@@ -35,6 +35,7 @@ defmodule ExShark.MixProject do
   defp deps do
     [
       {:jason, "~> 1.2"},
+      {:castore, "~> 1.0", optional: true},
       {:ex_doc, "~> 0.29", only: :dev, runtime: false},
       {:excoveralls, "~> 0.15", only: :test},
       {:credo, "~> 1.6", only: [:dev, :test], runtime: false},

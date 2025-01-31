@@ -30,6 +30,7 @@ defmodule ExShark do
         |> String.split("\n", trim: true)
         |> Enum.map(&parse_json/1)
         |> Enum.map(&Packet.new/1)
+        |> Enum.filter(&valid_packet?/1)
 
       {error, _} ->
         raise "tshark error: #{error}"
@@ -63,13 +64,16 @@ defmodule ExShark do
     |> stream_output()
     |> Stream.map(&parse_json/1)
     |> Stream.map(&Packet.new/1)
+    |> Stream.filter(&valid_packet?/1)
   end
 
   # Private Functions
 
   defp find_tshark do
-    System.find_executable("tshark") ||
-      raise "tshark executable not found in PATH"
+    case System.find_executable("tshark") do
+      nil -> raise "tshark executable not found in PATH"
+      path -> path
+    end
   end
 
   defp build_filter_args(""), do: []
@@ -109,4 +113,8 @@ defmodule ExShark do
         %{"layers" => %{}}
     end
   end
+
+  defp valid_packet?(%Packet{highest_layer: "UNKNOWN"}), do: false
+  defp valid_packet?(%Packet{layers: layers}) when map_size(layers) > 0, do: true
+  defp valid_packet?(_), do: false
 end
