@@ -58,14 +58,18 @@ defmodule ExShark.LazyCaptureTest do
     test "applies filter correctly", %{filtered_capture: capture} do
       packet = LazyCapture.get_packet(capture, 0)
       refute is_nil(packet)
-      assert packet.highest_layer in ["IP", "TCP", "UDP", "ICMP", "DNS", "HTTP"], 
-        "Got unexpected protocol: #{packet.highest_layer}"
+
+      assert packet.highest_layer in ["IP", "TCP", "UDP", "ICMP", "DNS", "HTTP"],
+             "Got unexpected protocol: #{packet.highest_layer}"
     end
 
-    test "filter affects packet count", %{capture: all_capture, filtered_capture: filtered_capture} do
+    test "filter affects packet count", %{
+      capture: all_capture,
+      filtered_capture: filtered_capture
+    } do
       all_count = LazyCapture.total_packets(all_capture)
       filtered_count = LazyCapture.total_packets(filtered_capture)
-      
+
       assert filtered_count > 0
       assert filtered_count <= all_count
     end

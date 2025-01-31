@@ -10,13 +10,13 @@ defmodule ExShark.PacketTest do
   describe "layer access" do
     test "can access layer using different methods", %{packet: packet} do
       protocol = packet.highest_layer |> String.downcase() |> String.to_atom()
-      
+
       layer = Packet.get_layer(packet, protocol)
       assert layer, "Failed to get layer by atom"
-      
+
       layer_by_string = Packet.get_layer(packet, to_string(protocol))
       assert layer_by_string == layer, "Layer access by string failed"
-      
+
       layer_by_upcase = Packet.get_layer(packet, String.upcase(to_string(protocol)))
       assert layer_by_upcase == layer, "Layer access by uppercase failed"
     end
@@ -43,7 +43,8 @@ defmodule ExShark.PacketTest do
       layer = Packet.get_layer(packet, protocol)
       raw_layer = %{layer | raw_mode: true}
 
-      field = Enum.find(Map.keys(layer.fields), & String.ends_with?(to_string(&1), ".raw"))
+      field = Enum.find(Map.keys(layer.fields), &String.ends_with?(to_string(&1), ".raw"))
+
       if field do
         field_name = field |> to_string() |> String.replace(".raw", "") |> String.to_atom()
         normal_value = Packet.Layer.get_field(layer, field_name)

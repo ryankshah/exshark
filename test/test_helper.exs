@@ -47,24 +47,35 @@ defmodule ExShark.TestHelper do
   defp generate_test_pcap do
     # Generate some reliable test traffic
     temp_file = Path.join(System.tmp_dir!(), "temp.pcap")
-    
+
     capture_args = [
-      "-w", temp_file,        # Write to temp file
-      "-F", "pcap",          # Use PCAP format
-      "-i", test_interface(),# Use test interface
-      "-f", "icmp or tcp",   # Capture ICMP and TCP
-      "-c", "10"             # Capture 10 packets
+      # Write to temp file
+      "-w",
+      temp_file,
+      # Use PCAP format
+      "-F",
+      "pcap",
+      # Use test interface
+      "-i",
+      test_interface(),
+      # Capture ICMP and TCP
+      "-f",
+      "icmp or tcp",
+      # Capture 10 packets
+      "-c",
+      "10"
     ]
 
     # Start capture
-    tshark_port = Port.open({:spawn_executable, tshark_path()}, [
-      :binary,
-      :exit_status,
-      args: capture_args
-    ])
+    tshark_port =
+      Port.open({:spawn_executable, tshark_path()}, [
+        :binary,
+        :exit_status,
+        args: capture_args
+      ])
 
     # Generate some traffic
-    ping_target = 
+    ping_target =
       case :os.type() do
         {:win32, _} -> "127.0.0.1"
         _ -> "localhost"
@@ -81,6 +92,7 @@ defmodule ExShark.TestHelper do
         else
           raise "Failed to create test PCAP: Empty or missing capture file"
         end
+
       {^tshark_port, {:exit_status, status}} ->
         raise "Failed to create test PCAP: tshark exited with status #{status}"
     after

@@ -28,7 +28,7 @@ defmodule ExSharkTest do
 
       for packet <- packets do
         assert packet.highest_layer in ["IP", "TCP", "UDP", "ICMP", "DNS", "HTTP"],
-          "Got unexpected protocol: #{inspect(packet.highest_layer)}"
+               "Got unexpected protocol: #{inspect(packet.highest_layer)}"
       end
     end
 
@@ -86,6 +86,7 @@ defmodule ExSharkTest do
     test "respects packet count" do
       TestHelper.with_test_interface(fn interface ->
         count = 2
+
         packets =
           ExShark.capture(
             interface: interface,
