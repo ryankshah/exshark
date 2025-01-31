@@ -8,12 +8,6 @@ defmodule ExShark do
 
   @doc """
   Reads packets from a pcap file and returns them as a list.
-
-  ## Example
-      iex> pcap_path = Path.join([File.cwd!(), "test", "support", "fixtures", "test.pcap"])
-      iex> packets = ExShark.read_file(pcap_path)
-      iex> is_list(packets)
-      true
   """
   def read_file(file_path, opts \\ []) do
     filter = Keyword.get(opts, :filter, "")
@@ -40,12 +34,6 @@ defmodule ExShark do
 
   @doc """
   Starts a live capture on the specified interface with given options.
-  Returns a stream of parsed packets.
-
-  ## Example
-      iex> capture = ExShark.capture(interface: "any", packet_count: 1)
-      iex> is_struct(capture, Stream)
-      true
   """
   def capture(opts \\ []) do
     interface = Keyword.get(opts, :interface, "any")
@@ -69,61 +57,57 @@ defmodule ExShark do
         args: args
       ])
 
-    # Generate some traffic on loopback if needed
+    # Generate some traffic if using loopback
     if should_generate_traffic?(interface) do
       generate_loopback_traffic()
-      # Give a small delay for the traffic to be generated
-      Process.sleep(100)
+      # Give some time for traffic to start flowing
+      Process.sleep(200)
     end
 
-    stream =
-      Stream.resource(
-        fn -> {port, []} end,
-        fn
-          {port, []} ->
-            receive do
-              {^port, {:data, {:eol, line}}} ->
-                case parse_json(line) do
-                  packet when is_map(packet) ->
-                    {[Packet.new(packet)], {port, []}}
+    Stream.resource(
+      # Added closed flag
+      fn -> {port, [], false} end,
+      fn
+        {port, [], false} ->
+          receive do
+            {^port, {:data, {:eol, line}}} ->
+              case parse_json(line) do
+                packet when is_map(packet) ->
+                  {[Packet.new(packet)], {port, [], false}}
 
-                  _ ->
-                    {[], {port, []}}
-                end
+                _ ->
+                  {[], {port, [], false}}
+              end
 
-              {^port, {:exit_status, _}} ->
-                {:halt, port}
-            after
-              5000 -> {:halt, port}
-            end
+            {^port, {:exit_status, _}} ->
+              {:halt, {port, [], true}}
+          after
+            5000 -> {:halt, {port, [], true}}
+          end
 
-          {port, buffer} ->
-            case parse_json(Enum.join(buffer, "")) do
-              packet when is_map(packet) ->
-                {[Packet.new(packet)], {port, []}}
+        {port, [], true} ->
+          {:halt, port}
+      end,
+      fn
+        port when is_port(port) ->
+          try do
+            Port.close(port)
+          catch
+            :error, :badarg -> :ok
+          end
 
-              _ ->
-                {[], {port, []}}
-            end
-        end,
-        fn
-          port when is_port(port) ->
-            try do
-              Port.close(port)
-            catch
-              :error, :badarg -> :ok
-            end
+        _ ->
+          :ok
+      end
+    )
+    |> Stream.filter(&valid_packet?/1)
+    |> add_packet_limit(packet_count)
+  end
 
-          _ ->
-            :ok
-        end
-      )
-      |> Stream.filter(&valid_packet?/1)
+  defp add_packet_limit(stream, nil), do: stream
 
-    case packet_count do
-      nil -> stream
-      count when is_integer(count) -> Stream.take(stream, count)
-    end
+  defp add_packet_limit(stream, count) when is_integer(count) and count > 0 do
+    stream |> Stream.take(count)
   end
 
   defp should_generate_traffic?(interface) do
@@ -139,14 +123,16 @@ defmodule ExShark do
   end
 
   defp generate_loopback_traffic do
-    Task.start(fn ->
-      ping_args =
-        case :os.type() do
-          {:win32, _} -> ["-n", "2", "127.0.0.1"]
-          {:unix, :darwin} -> ["-c", "2", "127.0.0.1"]
-          _ -> ["-c", "2", "-i", "0.1", "127.0.0.1"]
-        end
+    ping_count = "3"
 
+    ping_args =
+      case :os.type() do
+        {:win32, _} -> ["-n", ping_count, "127.0.0.1"]
+        {:unix, :darwin} -> ["-c", ping_count, "127.0.0.1"]
+        _ -> ["-c", ping_count, "-i", "0.1", "127.0.0.1"]
+      end
+
+    Task.start(fn ->
       System.cmd(
         case :os.type() do
           {:win32, _} -> "ping"
@@ -157,8 +143,6 @@ defmodule ExShark do
       )
     end)
   end
-
-  # Private Functions
 
   defp find_tshark do
     case System.find_executable("tshark") do

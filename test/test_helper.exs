@@ -9,10 +9,26 @@ defmodule ExShark.TestHelper do
     Path.join(@fixtures_path, filename)
   end
 
+  @doc """
+  Gets a test packet from the test PCAP file.
+  """
+  def get_test_packet(index \\ 0) do
+    ensure_test_pcap!()
+
+    @test_pcap
+    |> ExShark.read_file()
+    |> Enum.at(index)
+  end
+
   def ensure_test_pcap! do
     File.mkdir_p!(Path.dirname(@test_pcap))
 
     unless File.exists?(@test_pcap) do
+      generate_test_pcap()
+    end
+
+    # Verify the file exists and has content
+    if not File.exists?(@test_pcap) or File.stat!(@test_pcap).size == 0 do
       generate_test_pcap()
     end
 
@@ -25,10 +41,15 @@ defmodule ExShark.TestHelper do
     # Generate some initial traffic to ensure interface is ready
     generate_test_traffic()
 
-    # Small delay to ensure interface is ready
-    Process.sleep(200)
+    # Give the interface time to process the traffic
+    Process.sleep(500)
 
-    fun.(interface)
+    result = fun.(interface)
+
+    # Clean up any remaining processes
+    Process.sleep(100)
+
+    result
   end
 
   def test_interface do
@@ -41,21 +62,25 @@ defmodule ExShark.TestHelper do
   end
 
   defp generate_test_traffic do
-    ping_args =
-      case :os.type() do
-        {:win32, _} -> ["-n", "2", "127.0.0.1"]
-        {:unix, :darwin} -> ["-c", "2", "127.0.0.1"]
-        _ -> ["-c", "2", "-i", "0.1", "127.0.0.1"]
-      end
+    # Send multiple pings to ensure we get some traffic
+    1..3
+    |> Enum.each(fn _ ->
+      ping_args =
+        case :os.type() do
+          {:win32, _} -> ["-n", "1", "127.0.0.1"]
+          {:unix, :darwin} -> ["-c", "1", "127.0.0.1"]
+          _ -> ["-c", "1", "-i", "0.1", "127.0.0.1"]
+        end
 
-    System.cmd(
-      case :os.type() do
-        {:win32, _} -> "ping"
-        _ -> "/bin/ping"
-      end,
-      ping_args,
-      stderr_to_stdout: true
-    )
+      System.cmd(
+        case :os.type() do
+          {:win32, _} -> "ping"
+          _ -> "/bin/ping"
+        end,
+        ping_args,
+        stderr_to_stdout: true
+      )
+    end)
   end
 
   defp generate_test_pcap do
@@ -84,15 +109,18 @@ defmodule ExShark.TestHelper do
     # Generate traffic while capturing
     generate_test_traffic()
 
+    # Wait for capture to complete
     receive do
       {^port, {:exit_status, status}} when status in [0, 1] ->
+        # Give file system time to flush
+        Process.sleep(100)
+
         if File.exists?(temp_file) and File.stat!(temp_file).size > 0 do
           File.cp!(temp_file, @test_pcap)
+          File.rm(temp_file)
         else
           raise "Failed to create test PCAP: Empty or missing capture file"
         end
-
-        File.rm(temp_file)
 
       {^port, {:exit_status, status}} ->
         raise "Failed to create test PCAP: tshark exited with status #{status}"
